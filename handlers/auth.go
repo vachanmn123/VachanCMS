@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
-	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -59,10 +58,6 @@ func CallbackHandler(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to exchange code"})
 		return
 	}
-
-	fmt.Printf("Access Token: %s\n", token.AccessToken)
-	fmt.Printf("Token Type: %s\n", token.TokenType)
-	fmt.Printf("Token Extra: %v\n", token.Extra("scope"))
 
 	// Get user info
 	client := githubapi.NewClient(oauthConfig.Client(context.Background(), token))
