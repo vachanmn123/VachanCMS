@@ -6,7 +6,7 @@ import (
 	"github.com/vachanmn123/vachancms/middleware"
 )
 
-func SetupRoutes(router *gin.Engine) {
+func SetupRoutes(router gin.IRouter) {
 	handlers.InitAuthHandler()
 
 	// Define routes here
@@ -14,6 +14,7 @@ func SetupRoutes(router *gin.Engine) {
 	router.GET("/auth/callback", handlers.CallbackHandler)
 
 	protected := router.Group("", middleware.AuthMiddleware)
+	protected.GET("/me", handlers.GetMeHandler)
 	protected.GET("/repos", handlers.ListRepositoriesHandler)
 
 	repoGroup := protected.Group("/:owner/:repo")
@@ -28,4 +29,8 @@ func SetupRoutes(router *gin.Engine) {
 	repoGroup.POST("/:ctSlug", handlers.CreateValueOfType)
 	repoGroup.GET("/:ctSlug/:id", handlers.GetValueById)
 	repoGroup.PUT("/:ctSlug/:id", handlers.UpdateValueById)
+
+	repoGroup.GET("/media", handlers.ListMedia)
+	repoGroup.POST("/media", handlers.UploadMedia)
+	repoGroup.GET("/media/:id", handlers.GetMediaById)
 }

@@ -86,6 +86,23 @@ func CallbackHandler(c *gin.Context) {
 	c.Redirect(http.StatusTemporaryRedirect, "/")
 }
 
+func GetMeHandler(c *gin.Context) {
+	access_token := c.GetString("user_access_token")
+
+	client := githubapi.NewClient(oauthConfig.Client(context.Background(), &oauth2.Token{AccessToken: access_token}))
+	user, _, err := client.Users.Get(context.Background(), "")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get user"})
+		return
+	}
+
+	c.JSON(200, gin.H{
+		"login":      user.GetLogin(),
+		"name":       user.GetName(),
+		"avatar_url": user.GetAvatarURL(),
+	})
+}
+
 func generateState() (string, error) {
 	b := make([]byte, 32)
 	_, err := rand.Read(b)

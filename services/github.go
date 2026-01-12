@@ -21,12 +21,21 @@ func ListRepos(token string) ([]*github.Repository, error) {
 	return repos, nil
 }
 
+type FileNotFoundError struct{}
+
+func (e *FileNotFoundError) Error() string {
+	return "file not found"
+}
+
 func GetFileContents(token, user, repo, path string) (string, error) {
 	ctx := context.Background()
 	gh_client := github.NewTokenClient(ctx, token)
 
 	fileContent, _, res, err := gh_client.Repositories.GetContents(ctx, user, repo, path, &github.RepositoryContentGetOptions{})
 	if err != nil || res.StatusCode != 200 {
+		if res.StatusCode == 404 {
+			return "", &FileNotFoundError{}
+		}
 		return "", err
 	}
 
@@ -52,6 +61,28 @@ func CreateOrUpdateFile(token, user, repo, path, message, content string) error 
 	_, _, err = gh_client.Repositories.CreateFile(ctx, user, repo, path, &github.RepositoryContentFileOptions{
 		Message: &message,
 		Content: []byte(content),
+		SHA:     sha,
+	})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func UploadFile(token, user, repo, path, message string, content []byte) error {
+	ctx := context.Background()
+	gh_client := github.NewTokenClient(ctx, token)
+
+	fileContent, _, _, err := gh_client.Repositories.GetContents(ctx, user, repo, path, nil)
+	var sha *string
+	if err == nil {
+		s := fileContent.GetSHA()
+		sha = &s
+	}
+	// For both create and update, use CreateFile
+	_, _, err = gh_client.Repositories.CreateFile(ctx, user, repo, path, &github.RepositoryContentFileOptions{
+		Message: &message,
+		Content: content,
 		SHA:     sha,
 	})
 	if err != nil {

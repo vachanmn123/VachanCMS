@@ -1,0 +1,18 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "shadcnVue": {
+      "type": "local",
+      "enabled": true,
+      "command": ["npx", "shadcn-vue@latest", "mcp"]
+    },
+    "context7": {
+      "type": "remote",
+      "url": "https://mcp.context7.com/mcp",
+      "headers": {
+        "CONTEXT7_API_KEY": "ctx7sk-4b6cafc6-e6b2-408f-9ef0-3af19ece6b8d"
+      },
+      "enabled": true
+    }
+  }
+}

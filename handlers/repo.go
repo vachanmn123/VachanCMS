@@ -28,6 +28,12 @@ func GetRepoConfig(c *gin.Context) {
 
 	configFile, err := services.GetRepoConfig(access_token, owner, repo)
 	if err != nil {
+
+		if _, ok := err.(*services.FileNotFoundError); ok {
+			c.JSON(404, gin.H{"error": "Config file not found"})
+			return
+		}
+
 		c.JSON(500, gin.H{"error": "Failed to fetch or parse config"})
 		return
 	}
