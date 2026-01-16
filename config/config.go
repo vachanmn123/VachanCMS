@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/joho/godotenv"
@@ -23,7 +24,8 @@ func Load() *Config {
 
 	err := godotenv.Load()
 	if err != nil {
-		panic("Error loading .env file")
+		// panic("Error loading .env file")
+		fmt.Println("[WARN] Error loading .env file")
 	}
 
 	port := os.Getenv("PORT")
