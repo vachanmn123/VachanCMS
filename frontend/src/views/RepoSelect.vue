@@ -39,6 +39,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { Plus } from 'lucide-vue-next'
 
 interface Repo {
   full_name: string
@@ -124,7 +125,7 @@ function logout() {
     <header
       class="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60"
     >
-      <div class="container flex h-14 items-center justify-between px-4">
+      <div class="container mx-auto flex h-14 items-center justify-between px-4">
         <div class="flex items-center gap-2">
           <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
             <span class="text-sm font-bold text-primary-foreground">V</span>
@@ -170,9 +171,17 @@ function logout() {
 
     <!-- Main Content -->
     <main class="container mx-auto px-4 py-8">
-      <div class="mb-8">
-        <h1 class="text-3xl font-bold tracking-tight">Select Repository</h1>
-        <p class="mt-2 text-muted-foreground">Choose a repository to manage its content</p>
+      <div class="flex items-center justify-between">
+        <div class="mb-8">
+          <h1 class="text-3xl font-bold tracking-tight">Select Repository</h1>
+          <p class="mt-2 text-muted-foreground">Choose a repository to manage its content</p>
+        </div>
+        <a href="https://github.com/new" target="_blank">
+          <Button>
+            <Plus />
+            New Repository
+          </Button>
+        </a>
       </div>
 
       <!-- Search -->
@@ -245,7 +254,7 @@ function logout() {
 
     <!-- Site Name Dialog -->
     <Dialog v-model:open="showSiteNameDialog">
-      <DialogContent class="sm:max-w-[425px]">
+      <DialogContent class="sm:max-w-106.25">
         <DialogHeader>
           <DialogTitle>Site Configuration</DialogTitle>
           <DialogDescription>

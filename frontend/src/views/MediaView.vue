@@ -411,10 +411,10 @@ onMounted(() => {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead class="w-[50px]">Type</TableHead>
+                <TableHead class="w-12.5">Type</TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead class="hidden sm:table-cell">MIME Type</TableHead>
-                <TableHead class="w-[150px]">Actions</TableHead>
+                <TableHead class="w-37.5">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -430,7 +430,7 @@ onMounted(() => {
                     class="h-5 w-5 text-muted-foreground"
                   />
                 </TableCell>
-                <TableCell class="max-w-[200px] truncate font-medium">
+                <TableCell class="max-w-50 truncate font-medium">
                   {{ item.file_name }}
                 </TableCell>
                 <TableCell class="hidden text-muted-foreground sm:table-cell">
@@ -491,7 +491,7 @@ onMounted(() => {
 
     <!-- Upload Dialog -->
     <Dialog v-model:open="showUploadDialog" @update:open="(open) => !open && closeUploadDialog()">
-      <DialogContent class="sm:max-w-[500px]">
+      <DialogContent class="sm:max-w-125">
         <DialogHeader>
           <DialogTitle>Upload Media</DialogTitle>
           <DialogDescription>
@@ -502,7 +502,7 @@ onMounted(() => {
         <div class="space-y-4 py-4">
           <!-- Drop Zone -->
           <div
-            class="relative flex min-h-[200px] cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed transition-colors"
+            class="relative flex min-h-50 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed transition-colors"
             :class="[
               dragOver
                 ? 'border-primary bg-primary/5'
@@ -558,7 +558,7 @@ onMounted(() => {
 
     <!-- Preview Dialog -->
     <Dialog v-model:open="showPreviewDialog" @update:open="(open) => !open && closePreview()">
-      <DialogContent class="sm:max-w-[600px]">
+      <DialogContent class="sm:max-w-150">
         <DialogHeader>
           <DialogTitle class="truncate pr-8">{{ selectedMedia?.file_name }}</DialogTitle>
           <DialogDescription>{{ selectedMedia?.file_type }}</DialogDescription>
@@ -573,7 +573,7 @@ onMounted(() => {
             <img
               :src="mediaUrl"
               :alt="selectedMedia.file_name"
-              class="mx-auto max-h-[400px] object-contain"
+              class="mx-auto max-h-100 object-contain"
             />
           </div>
 

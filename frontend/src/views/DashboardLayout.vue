@@ -416,7 +416,7 @@ function goToMedia() {
 
     <!-- New Type Dialog -->
     <Dialog v-model:open="showNewTypeDialog" @update:open="(open) => !open && resetNewTypeForm()">
-      <DialogContent class="max-h-[90vh] overflow-y-auto sm:max-w-[550px]">
+      <DialogContent class="max-h-[90vh] overflow-y-auto sm:max-w-137.5">
         <DialogHeader>
           <DialogTitle>Create New Content Type</DialogTitle>
           <DialogDescription>
