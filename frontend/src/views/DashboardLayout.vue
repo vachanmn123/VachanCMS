@@ -3,6 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useRepoStore, type ContentType } from '@/stores/repo'
 import { useAuthStore } from '@/stores/auth'
+import { usePagesStore } from '@/stores/pages'
 import axios from 'axios'
 import { toast } from 'vue-sonner'
 import {
@@ -15,6 +16,8 @@ import {
   ChevronRight,
   Loader2,
   Image as ImageIcon,
+  Globe,
+  AlertCircle,
 } from 'lucide-vue-next'
 
 import { Button } from '@/components/ui/button'
@@ -72,6 +75,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Separator } from '@/components/ui/separator'
 import { Card, CardContent } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 
 interface FieldDraft {
@@ -85,6 +89,7 @@ const route = useRoute()
 const router = useRouter()
 const repoStore = useRepoStore()
 const authStore = useAuthStore()
+const pagesStore = usePagesStore()
 
 const contentTypes = ref<ContentType[]>([])
 const selectedType = ref('')
@@ -106,6 +111,9 @@ const currentTypeName = computed(() => {
   const type = contentTypes.value.find((t) => t.slug === ctSlug.value)
   return type?.name || ''
 })
+const pagesSettingsUrl = computed(
+  () => `https://github.com/${owner.value}/${repo.value}/settings/pages`,
+)
 
 onMounted(async () => {
   repoStore.selectRepo(owner.value, repo.value)
@@ -131,6 +139,9 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
+
+  // Fetch pages config (non-blocking)
+  pagesStore.fetchPagesConfig(owner.value, repo.value)
 })
 
 // Watch for route changes to update selected type
@@ -225,6 +236,27 @@ function goToMedia() {
                 </div>
               </a>
             </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem class="group-data-[collapsible=icon]:hidden">
+            <a
+              :href="pagesSettingsUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="flex w-full"
+            >
+              <Badge
+                v-if="!pagesStore.loading"
+                :variant="pagesStore.isInitialized ? 'default' : 'destructive'"
+                class="w-full justify-center gap-1.5 py-1"
+              >
+                <Globe v-if="pagesStore.isInitialized" class="h-3 w-3" />
+                <AlertCircle v-else class="h-3 w-3" />
+                {{ pagesStore.isInitialized ? 'Pages Active' : 'Pages Off' }}
+              </Badge>
+              <Badge v-else variant="secondary" class="w-full justify-center py-1">
+                <Loader2 class="h-3 w-3 animate-spin" />
+              </Badge>
+            </a>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
+import { usePagesStore } from '@/stores/pages'
 import axios from 'axios'
 import { toast } from 'vue-sonner'
 import type { AcceptableValue } from 'reka-ui'
@@ -17,6 +18,8 @@ import {
   Download,
   X,
   Loader2,
+  Copy,
+  Check,
 } from 'lucide-vue-next'
 
 import { Button } from '@/components/ui/button'
@@ -33,6 +36,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
 import { AspectRatio } from '@/components/ui/aspect-ratio'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import MediaApiPanel from '@/components/MediaApiPanel.vue'
 import {
   Table,
   TableBody,
@@ -55,9 +59,13 @@ interface MediaResponse {
 }
 
 const route = useRoute()
+const pagesStore = usePagesStore()
 
 const owner = computed(() => String(route.params.owner))
 const repo = computed(() => String(route.params.repo))
+const pagesSettingsUrl = computed(
+  () => `https://github.com/${owner.value}/${repo.value}/settings/pages`,
+)
 
 // State
 const media = ref<MediaFile[]>([])
@@ -72,6 +80,7 @@ const selectedMedia = ref<MediaFile | null>(null)
 const dragOver = ref(false)
 const selectedFile = ref<File | null>(null)
 const fileInputRef = ref<HTMLInputElement | null>(null)
+const copiedUrlIndex = ref<number | null>(null)
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024 // 100MB
 
@@ -227,6 +236,27 @@ function triggerFileInput() {
   fileInputRef.value?.click()
 }
 
+function getMediaUrl(mediaId: string): string {
+  if (!pagesStore.baseUrl) return ''
+  const base = pagesStore.baseUrl.endsWith('/') ? pagesStore.baseUrl : `${pagesStore.baseUrl}/`
+  return `${base}media/${mediaId}`
+}
+
+async function copyMediaUrl(mediaId: string, index: number) {
+  const url = getMediaUrl(mediaId)
+  if (!url) return
+
+  try {
+    await navigator.clipboard.writeText(url)
+    copiedUrlIndex.value = index
+    setTimeout(() => {
+      copiedUrlIndex.value = null
+    }, 2000)
+  } catch {
+    console.error('Failed to copy to clipboard')
+  }
+}
+
 // View mode persistence
 function setViewMode(mode: AcceptableValue | AcceptableValue[]) {
   const modeStr = Array.isArray(mode) ? mode[0] : mode
@@ -255,166 +285,207 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="space-y-6">
-    <!-- Header -->
-    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-      <div>
-        <h1 class="text-2xl font-bold tracking-tight">Media Library</h1>
-        <p class="text-sm text-muted-foreground">
-          Upload and manage your media files
-          <Badge v-if="!loading" variant="secondary" class="ml-2">
-            {{ media.length }} {{ media.length === 1 ? 'file' : 'files' }}
-          </Badge>
-        </p>
+  <div class="flex gap-5 h-full">
+    <!-- Main Content -->
+    <div class="flex-1 space-y-6 overflow-auto">
+      <!-- Header -->
+      <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 class="text-2xl font-bold tracking-tight">Media Library</h1>
+          <p class="text-sm text-muted-foreground">
+            Upload and manage your media files
+            <Badge v-if="!loading" variant="secondary" class="ml-2">
+              {{ media.length }} {{ media.length === 1 ? 'file' : 'files' }}
+            </Badge>
+          </p>
+        </div>
+        <div class="flex items-center gap-2">
+          <ToggleGroup type="single" :model-value="viewMode" @update:model-value="setViewMode">
+            <ToggleGroupItem value="grid" aria-label="Grid view">
+              <LayoutGrid class="h-4 w-4" />
+            </ToggleGroupItem>
+            <ToggleGroupItem value="list" aria-label="List view">
+              <List class="h-4 w-4" />
+            </ToggleGroupItem>
+          </ToggleGroup>
+          <Button @click="openUploadDialog" :disabled="loading">
+            <Upload class="mr-2 h-4 w-4" />
+            Upload
+          </Button>
+        </div>
       </div>
-      <div class="flex items-center gap-2">
-        <ToggleGroup type="single" :model-value="viewMode" @update:model-value="setViewMode">
-          <ToggleGroupItem value="grid" aria-label="Grid view">
-            <LayoutGrid class="h-4 w-4" />
-          </ToggleGroupItem>
-          <ToggleGroupItem value="list" aria-label="List view">
-            <List class="h-4 w-4" />
-          </ToggleGroupItem>
-        </ToggleGroup>
-        <Button @click="openUploadDialog" :disabled="loading">
-          <Upload class="mr-2 h-4 w-4" />
-          Upload
-        </Button>
-      </div>
-    </div>
 
-    <!-- Loading State -->
-    <div v-if="loading">
+      <!-- Loading State -->
+      <div v-if="loading">
+        <div
+          v-if="viewMode === 'grid'"
+          class="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4"
+        >
+          <Skeleton v-for="i in 8" :key="i" class="aspect-square rounded-lg" />
+        </div>
+        <Card v-else>
+          <CardContent class="p-4">
+            <div class="space-y-3">
+              <Skeleton v-for="i in 5" :key="i" class="h-12 w-full" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <!-- Empty State -->
+      <Card v-else-if="media.length === 0">
+        <CardContent class="flex flex-col items-center justify-center py-16">
+          <div class="rounded-full bg-muted p-4">
+            <ImageIcon class="h-8 w-8 text-muted-foreground" />
+          </div>
+          <CardTitle class="mt-4 text-lg">No media files yet</CardTitle>
+          <CardDescription class="mt-2 max-w-sm text-center">
+            Upload images, documents, and other files to your media library. Files are stored in
+            your GitHub repository.
+          </CardDescription>
+          <Button class="mt-6" @click="openUploadDialog">
+            <Upload class="mr-2 h-4 w-4" />
+            Upload your first file
+          </Button>
+        </CardContent>
+      </Card>
+
+      <!-- Grid View -->
       <div
-        v-if="viewMode === 'grid'"
+        v-else-if="viewMode === 'grid'"
         class="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4"
       >
-        <Skeleton v-for="i in 8" :key="i" class="aspect-square rounded-lg" />
+        <Card
+          v-for="(item, index) in media"
+          :key="item.id"
+          class="group cursor-pointer overflow-hidden transition-colors hover:bg-accent"
+          @click="openPreview(item)"
+        >
+          <AspectRatio :ratio="1" class="bg-muted">
+            <img
+              v-if="isImage(item.file_type)"
+              :src="getMediaThumbnailUrl(item)"
+              :alt="item.file_name"
+              class="h-full w-full object-cover"
+            />
+            <div v-else class="flex h-full w-full items-center justify-center">
+              <component
+                :is="getFileIcon(item.file_type)"
+                class="h-12 w-12 text-muted-foreground"
+              />
+            </div>
+          </AspectRatio>
+          <CardContent class="p-3">
+            <p class="truncate text-sm font-medium">{{ item.file_name }}</p>
+            <p class="truncate text-xs text-muted-foreground">{{ item.file_type }}</p>
+            <div class="mt-2 flex items-center justify-between">
+              <div class="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  class="h-6 w-6 p-0"
+                  @click.stop="openPreview(item)"
+                >
+                  <Download class="h-3 w-3" />
+                </Button>
+                <Button
+                  v-if="pagesStore.isInitialized"
+                  variant="ghost"
+                  size="sm"
+                  class="h-6 w-6 p-0"
+                  @click.stop="copyMediaUrl(item.id, index)"
+                  :title="copiedUrlIndex === index ? 'Copied!' : 'Copy URL'"
+                >
+                  <Check v-if="copiedUrlIndex === index" class="h-3 w-3 text-green-500" />
+                  <Copy v-else class="h-3 w-3" />
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
+
+      <!-- List View -->
       <Card v-else>
-        <CardContent class="p-4">
-          <div class="space-y-3">
-            <Skeleton v-for="i in 5" :key="i" class="h-12 w-full" />
-          </div>
-        </CardContent>
+        <ScrollArea class="w-full">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead class="w-[50px]">Type</TableHead>
+                <TableHead>Name</TableHead>
+                <TableHead class="hidden sm:table-cell">MIME Type</TableHead>
+                <TableHead class="w-[150px]">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              <TableRow
+                v-for="(item, index) in media"
+                :key="item.id"
+                class="cursor-pointer"
+                @click="openPreview(item)"
+              >
+                <TableCell>
+                  <component
+                    :is="getFileIcon(item.file_type)"
+                    class="h-5 w-5 text-muted-foreground"
+                  />
+                </TableCell>
+                <TableCell class="max-w-[200px] truncate font-medium">
+                  {{ item.file_name }}
+                </TableCell>
+                <TableCell class="hidden text-muted-foreground sm:table-cell">
+                  {{ item.file_type }}
+                </TableCell>
+                <TableCell>
+                  <div class="flex items-center gap-1">
+                    <Button variant="ghost" size="sm" @click.stop="openPreview(item)">
+                      View
+                    </Button>
+                    <Button variant="ghost" size="sm" @click.stop="downloadFile(item)">
+                      <Download class="h-4 w-4" />
+                    </Button>
+                    <Button
+                      v-if="pagesStore.isInitialized"
+                      variant="ghost"
+                      size="sm"
+                      @click.stop="copyMediaUrl(item.id, index)"
+                      :title="copiedUrlIndex === index ? 'Copied!' : 'Copy URL'"
+                    >
+                      <Check v-if="copiedUrlIndex === index" class="h-3 w-3 text-green-500" />
+                      <Copy v-else class="h-3 w-3" />
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+          <ScrollBar orientation="horizontal" />
+        </ScrollArea>
       </Card>
-    </div>
 
-    <!-- Empty State -->
-    <Card v-else-if="media.length === 0">
-      <CardContent class="flex flex-col items-center justify-center py-16">
-        <div class="rounded-full bg-muted p-4">
-          <ImageIcon class="h-8 w-8 text-muted-foreground" />
+      <!-- Pagination -->
+      <div v-if="!loading && media.length > 0 && totalPages > 1" class="flex justify-center">
+        <div class="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            :disabled="currentPage <= 1"
+            @click="goToPage(currentPage - 1)"
+          >
+            Previous
+          </Button>
+          <span class="px-4 text-sm text-muted-foreground">
+            Page {{ currentPage }} of {{ totalPages }}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            :disabled="currentPage >= totalPages"
+            @click="goToPage(currentPage + 1)"
+          >
+            Next
+          </Button>
         </div>
-        <CardTitle class="mt-4 text-lg">No media files yet</CardTitle>
-        <CardDescription class="mt-2 max-w-sm text-center">
-          Upload images, documents, and other files to your media library. Files are stored in your
-          GitHub repository.
-        </CardDescription>
-        <Button class="mt-6" @click="openUploadDialog">
-          <Upload class="mr-2 h-4 w-4" />
-          Upload your first file
-        </Button>
-      </CardContent>
-    </Card>
-
-    <!-- Grid View -->
-    <div
-      v-else-if="viewMode === 'grid'"
-      class="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4"
-    >
-      <Card
-        v-for="item in media"
-        :key="item.id"
-        class="group cursor-pointer overflow-hidden transition-colors hover:bg-accent"
-        @click="openPreview(item)"
-      >
-        <AspectRatio :ratio="1" class="bg-muted">
-          <img
-            v-if="isImage(item.file_type)"
-            :src="getMediaThumbnailUrl(item)"
-            :alt="item.file_name"
-            class="h-full w-full object-cover"
-          />
-          <div v-else class="flex h-full w-full items-center justify-center">
-            <component :is="getFileIcon(item.file_type)" class="h-12 w-12 text-muted-foreground" />
-          </div>
-        </AspectRatio>
-        <CardContent class="p-3">
-          <p class="truncate text-sm font-medium">{{ item.file_name }}</p>
-          <p class="truncate text-xs text-muted-foreground">{{ item.file_type }}</p>
-        </CardContent>
-      </Card>
-    </div>
-
-    <!-- List View -->
-    <Card v-else>
-      <ScrollArea class="w-full">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead class="w-[50px]">Type</TableHead>
-              <TableHead>Name</TableHead>
-              <TableHead class="hidden sm:table-cell">MIME Type</TableHead>
-              <TableHead class="w-[150px]">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            <TableRow
-              v-for="item in media"
-              :key="item.id"
-              class="cursor-pointer"
-              @click="openPreview(item)"
-            >
-              <TableCell>
-                <component
-                  :is="getFileIcon(item.file_type)"
-                  class="h-5 w-5 text-muted-foreground"
-                />
-              </TableCell>
-              <TableCell class="max-w-[200px] truncate font-medium">
-                {{ item.file_name }}
-              </TableCell>
-              <TableCell class="hidden text-muted-foreground sm:table-cell">
-                {{ item.file_type }}
-              </TableCell>
-              <TableCell>
-                <div class="flex items-center gap-1">
-                  <Button variant="ghost" size="sm" @click.stop="openPreview(item)"> View </Button>
-                  <Button variant="ghost" size="sm" @click.stop="downloadFile(item)">
-                    <Download class="h-4 w-4" />
-                  </Button>
-                </div>
-              </TableCell>
-            </TableRow>
-          </TableBody>
-        </Table>
-        <ScrollBar orientation="horizontal" />
-      </ScrollArea>
-    </Card>
-
-    <!-- Pagination -->
-    <div v-if="!loading && media.length > 0 && totalPages > 1" class="flex justify-center">
-      <div class="flex items-center gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          :disabled="currentPage <= 1"
-          @click="goToPage(currentPage - 1)"
-        >
-          Previous
-        </Button>
-        <span class="px-4 text-sm text-muted-foreground">
-          Page {{ currentPage }} of {{ totalPages }}
-        </span>
-        <Button
-          variant="outline"
-          size="sm"
-          :disabled="currentPage >= totalPages"
-          @click="goToPage(currentPage + 1)"
-        >
-          Next
-        </Button>
       </div>
     </div>
 
@@ -540,5 +611,12 @@ onMounted(() => {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    <!-- Media API Panel -->
+    <MediaApiPanel
+      :base-url="pagesStore.baseUrl"
+      :is-initialized="pagesStore.isInitialized"
+      :pages-settings-url="pagesSettingsUrl"
+    />
   </div>
 </template>

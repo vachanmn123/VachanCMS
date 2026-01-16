@@ -90,3 +90,28 @@ func UploadFile(token, user, repo, path, message string, content []byte) error {
 	}
 	return nil
 }
+
+type PageConfig struct {
+	Initialized bool
+	URL         string
+}
+
+func GetPagesConfig(token, user, repo string) (*PageConfig, error) {
+	ctx := context.Background()
+	gh_client := github.NewTokenClient(ctx, token)
+
+	pagesConfig, res, err := gh_client.Repositories.GetPagesInfo(ctx, user, repo)
+	if err != nil || res.StatusCode != 200 {
+		if res.StatusCode == 404 {
+			return &PageConfig{
+				Initialized: false,
+			}, nil
+		}
+		return nil, err
+	}
+
+	return &PageConfig{
+		Initialized: true,
+		URL:         pagesConfig.GetHTMLURL(),
+	}, nil
+}

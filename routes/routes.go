@@ -33,4 +33,6 @@ func SetupRoutes(router gin.IRouter) {
 	repoGroup.GET("/media", handlers.ListMedia)
 	repoGroup.POST("/media", handlers.UploadMedia)
 	repoGroup.GET("/media/:id", handlers.GetMediaById)
+
+	repoGroup.GET("/pages", handlers.GetPagesConfig)
 }
