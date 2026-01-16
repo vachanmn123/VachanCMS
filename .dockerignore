@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+
+# Build outputs (we build fresh in Docker)
+frontend/dist/
+
+# Git
+.git/
+.gitignore
+
+# Environment files (secrets should be passed at runtime)
+.env
+.env.*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Test files
+tests.js
+*.test.go
+*_test.go
+
+# Misc
+*.log
+tmp/
