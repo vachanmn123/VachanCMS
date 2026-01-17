@@ -53,10 +53,20 @@ func CreateContentType(c *gin.Context) {
 
 	configFile.ContentTypes = append(configFile.ContentTypes, contentType)
 
-	// Update the config file
-	err = services.UpdateRepoConfig(access_token, owner, repo, configFile, fmt.Sprintf("Create Content Type: %s", contentType.Name))
+	fileContent, err := json.Marshal(configFile)
 	if err != nil {
-		fmt.Println("Error updating config:", err)
+		c.JSON(500, gin.H{"error": "Failed to marshal config file"})
+	}
+
+	newBranchName := uuid.New().String()
+	err = services.CreateBranch(access_token, owner, repo, newBranchName)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to create new branch."})
+		return
+	}
+
+	err = services.CreateOrUpdateFile(access_token, owner, repo, "config/config.json", fmt.Sprintf("Create Content Type: %s", contentType.Name), string(fileContent), newBranchName)
+	if err != nil {
 		c.JSON(500, gin.H{"error": "Failed to update config"})
 		return
 	}
@@ -80,15 +90,21 @@ func CreateContentType(c *gin.Context) {
 	contentValueIndexFileJson, err := json.Marshal(contentValueIndexFile)
 
 	// Create a new folder under the data/ directory for this content type
-	err = services.CreateOrUpdateFile(access_token, owner, repo, fmt.Sprintf("data/%s/config.json", contentType.Slug), fmt.Sprintf("Create data folder for content type: %s", contentType.Name), string(contentTypeConfigFileJson))
+	err = services.CreateOrUpdateFile(access_token, owner, repo, fmt.Sprintf("data/%s/config.json", contentType.Slug), fmt.Sprintf("Create data folder for content type: %s", contentType.Name), string(contentTypeConfigFileJson), newBranchName)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "Failed to create data folder and config file for content type"})
 		return
 	}
 
-	err = services.CreateOrUpdateFile(access_token, owner, repo, fmt.Sprintf("data/%s/index-1.json", contentType.Slug), fmt.Sprintf("Create index file for content type: %s", contentType.Name), string(contentValueIndexFileJson))
+	err = services.CreateOrUpdateFile(access_token, owner, repo, fmt.Sprintf("data/%s/index-1.json", contentType.Slug), fmt.Sprintf("Create index file for content type: %s", contentType.Name), string(contentValueIndexFileJson), newBranchName)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "Failed to create index file for content type"})
+		return
+	}
+
+	err = services.MergeBranch(access_token, owner, repo, newBranchName, fmt.Sprintf("Added new content type - %s", contentType.Name))
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to merge branch"})
 		return
 	}
 

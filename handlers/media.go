@@ -86,8 +86,15 @@ func UploadMedia(c *gin.Context) {
 		fileType = "application/octet-stream"
 	}
 
+	newBranchName := uuid.New().String()
+	err = services.CreateBranch(access_token, owner, repo, newBranchName)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to create new branch."})
+		return
+	}
+
 	// Upload the file
-	err = services.UploadFile(access_token, owner, repo, fmt.Sprintf("media/%s", id), fmt.Sprintf("Upload media file: %s", fileName), content)
+	err = services.UploadFile(access_token, owner, repo, fmt.Sprintf("media/%s", id), fmt.Sprintf("Upload media file: %s", fileName), content, newBranchName)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "Failed to upload file"})
 		return
@@ -100,7 +107,7 @@ func UploadMedia(c *gin.Context) {
 	}
 
 	// Handle config and index
-	configContents, err := services.GetFileContents(access_token, owner, repo, "media/config.json")
+	configContents, err := services.GetFileContents(access_token, owner, repo, "media/config.json", newBranchName)
 	var config models.MediaConfigFile
 	if err != nil {
 		// Create initial config
@@ -111,7 +118,7 @@ func UploadMedia(c *gin.Context) {
 			Items:        map[string]int{},
 		}
 		configJson, _ := json.Marshal(config)
-		services.CreateOrUpdateFile(access_token, owner, repo, "media/config.json", "Initialize media config", string(configJson))
+		services.CreateOrUpdateFile(access_token, owner, repo, "media/config.json", "Initialize media config", string(configJson), newBranchName)
 
 		// Create initial index
 		indexFile := models.MediaIndexFile{
@@ -119,7 +126,7 @@ func UploadMedia(c *gin.Context) {
 			Media: []models.MediaFile{},
 		}
 		indexJson, _ := json.Marshal(indexFile)
-		services.CreateOrUpdateFile(access_token, owner, repo, "media/index-1.json", "Initialize media index", string(indexJson))
+		services.CreateOrUpdateFile(access_token, owner, repo, "media/index-1.json", "Initialize media index", string(indexJson), newBranchName)
 	} else {
 		json.Unmarshal([]byte(configContents), &config)
 	}
@@ -132,12 +139,12 @@ func UploadMedia(c *gin.Context) {
 			Media: []models.MediaFile{},
 		}
 		newIndexJson, _ := json.Marshal(newIndexFile)
-		services.CreateOrUpdateFile(access_token, owner, repo, fmt.Sprintf("media/index-%d.json", targetPage), fmt.Sprintf("Create media index page %d", targetPage), string(newIndexJson))
+		services.CreateOrUpdateFile(access_token, owner, repo, fmt.Sprintf("media/index-%d.json", targetPage), fmt.Sprintf("Create media index page %d", targetPage), string(newIndexJson), newBranchName)
 		config.TotalPages = targetPage
 	}
 
 	// Read and update the target page's index
-	indexContents, err := services.GetFileContents(access_token, owner, repo, fmt.Sprintf("media/index-%d.json", targetPage))
+	indexContents, err := services.GetFileContents(access_token, owner, repo, fmt.Sprintf("media/index-%d.json", targetPage), newBranchName)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "Failed to fetch target index"})
 		return
@@ -148,13 +155,19 @@ func UploadMedia(c *gin.Context) {
 
 	indexFile.Media = append(indexFile.Media, mediaFile)
 	updatedIndexJson, _ := json.Marshal(indexFile)
-	services.CreateOrUpdateFile(access_token, owner, repo, fmt.Sprintf("media/index-%d.json", targetPage), fmt.Sprintf("Update media index page %d", targetPage), string(updatedIndexJson))
+	services.CreateOrUpdateFile(access_token, owner, repo, fmt.Sprintf("media/index-%d.json", targetPage), fmt.Sprintf("Update media index page %d", targetPage), string(updatedIndexJson), newBranchName)
 
 	// Update config
 	config.TotalItems++
 	config.Items[mediaFile.Id] = targetPage
 	updatedConfigJson, _ := json.Marshal(config)
-	services.CreateOrUpdateFile(access_token, owner, repo, "media/config.json", "Update media config", string(updatedConfigJson))
+	services.CreateOrUpdateFile(access_token, owner, repo, "media/config.json", "Update media config", string(updatedConfigJson), newBranchName)
+
+	err = services.MergeBranch(access_token, owner, repo, newBranchName, fmt.Sprintf("Added new media - %s", mediaFile.Id))
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to merge branch"})
+		return
+	}
 
 	c.JSON(201, mediaFile)
 }

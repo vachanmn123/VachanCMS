@@ -173,13 +173,20 @@ func CreateValueOfType(c *gin.Context) {
 		return
 	}
 
-	err = services.CreateOrUpdateFile(access_token, owner, repo, fmt.Sprintf("data/%s/%s.json", ctSlug, newValue.Id), fmt.Sprintf("Add new content value to %s", ctSlug), string(newValueJson))
+	newBranchName := uuid.New().String()
+	err = services.CreateBranch(access_token, owner, repo, newBranchName)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to create new branch."})
+		return
+	}
+
+	err = services.CreateOrUpdateFile(access_token, owner, repo, fmt.Sprintf("data/%s/%s.json", ctSlug, newValue.Id), fmt.Sprintf("Add new content value to %s", ctSlug), string(newValueJson), newBranchName)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "Failed to create new content value file"})
 		return
 	}
 
-	configContents, err := services.GetFileContents(access_token, owner, repo, fmt.Sprintf("data/%s/config.json", ctSlug))
+	configContents, err := services.GetFileContents(access_token, owner, repo, fmt.Sprintf("data/%s/config.json", ctSlug), newBranchName)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "Failed to fetch content values config"})
 		return
@@ -204,7 +211,7 @@ func CreateValueOfType(c *gin.Context) {
 			c.JSON(500, gin.H{"error": "Failed to marshal new index file"})
 			return
 		}
-		err = services.CreateOrUpdateFile(access_token, owner, repo, fmt.Sprintf("data/%s/index-%d.json", ctSlug, targetPage), fmt.Sprintf("Create new index page %d for %s", targetPage, ctSlug), string(newIndexJson))
+		err = services.CreateOrUpdateFile(access_token, owner, repo, fmt.Sprintf("data/%s/index-%d.json", ctSlug, targetPage), fmt.Sprintf("Create new index page %d for %s", targetPage, ctSlug), string(newIndexJson), newBranchName)
 		if err != nil {
 			c.JSON(500, gin.H{"error": "Failed to create new index file"})
 			return
@@ -213,7 +220,7 @@ func CreateValueOfType(c *gin.Context) {
 	}
 
 	// Read and update the target page's index
-	indexContents, err := services.GetFileContents(access_token, owner, repo, fmt.Sprintf("data/%s/index-%d.json", ctSlug, targetPage))
+	indexContents, err := services.GetFileContents(access_token, owner, repo, fmt.Sprintf("data/%s/index-%d.json", ctSlug, targetPage), newBranchName)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "Failed to fetch target index file"})
 		return
@@ -233,7 +240,7 @@ func CreateValueOfType(c *gin.Context) {
 		return
 	}
 
-	err = services.CreateOrUpdateFile(access_token, owner, repo, fmt.Sprintf("data/%s/index-%d.json", ctSlug, targetPage), fmt.Sprintf("Update index page %d for %s", targetPage, ctSlug), string(updatedIndexJson))
+	err = services.CreateOrUpdateFile(access_token, owner, repo, fmt.Sprintf("data/%s/index-%d.json", ctSlug, targetPage), fmt.Sprintf("Update index page %d for %s", targetPage, ctSlug), string(updatedIndexJson), newBranchName)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "Failed to update index file"})
 		return
@@ -248,9 +255,15 @@ func CreateValueOfType(c *gin.Context) {
 		return
 	}
 
-	err = services.CreateOrUpdateFile(access_token, owner, repo, fmt.Sprintf("data/%s/config.json", ctSlug), fmt.Sprintf("Update config for %s", ctSlug), string(updatedConfigJson))
+	err = services.CreateOrUpdateFile(access_token, owner, repo, fmt.Sprintf("data/%s/config.json", ctSlug), fmt.Sprintf("Update config for %s", ctSlug), string(updatedConfigJson), newBranchName)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "Failed to update config"})
+		return
+	}
+
+	err = services.MergeBranch(access_token, owner, repo, newBranchName, fmt.Sprintf("Added new content value - %s/%s", ctSlug, newValue.Id))
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to merge branch"})
 		return
 	}
 
@@ -346,13 +359,20 @@ func UpdateValueById(c *gin.Context) {
 		return
 	}
 
-	err = services.CreateOrUpdateFile(access_token, owner, repo, fmt.Sprintf("data/%s/%s.json", ctSlug, id), fmt.Sprintf("Update content value %s in %s", id, ctSlug), string(updatedValueJson))
+	newBranchName := uuid.New().String()
+	err = services.CreateBranch(access_token, owner, repo, newBranchName)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to create new branch."})
+		return
+	}
+
+	err = services.CreateOrUpdateFile(access_token, owner, repo, fmt.Sprintf("data/%s/%s.json", ctSlug, id), fmt.Sprintf("Update content value %s in %s", id, ctSlug), string(updatedValueJson), newBranchName)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "Failed to update content value file"})
 		return
 	}
 
-	configContents, err := services.GetFileContents(access_token, owner, repo, fmt.Sprintf("data/%s/config.json", ctSlug))
+	configContents, err := services.GetFileContents(access_token, owner, repo, fmt.Sprintf("data/%s/config.json", ctSlug), newBranchName)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "Failed to fetch content values config"})
 		return
@@ -371,7 +391,7 @@ func UpdateValueById(c *gin.Context) {
 		return
 	}
 
-	indexContents, err := services.GetFileContents(access_token, owner, repo, fmt.Sprintf("data/%s/index-%d.json", ctSlug, page))
+	indexContents, err := services.GetFileContents(access_token, owner, repo, fmt.Sprintf("data/%s/index-%d.json", ctSlug, page), newBranchName)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "Failed to fetch index file"})
 		return
@@ -402,9 +422,15 @@ func UpdateValueById(c *gin.Context) {
 		return
 	}
 
-	err = services.CreateOrUpdateFile(access_token, owner, repo, fmt.Sprintf("data/%s/index-%d.json", ctSlug, page), fmt.Sprintf("Update index page %d for %s", page, ctSlug), string(updatedIndexJson))
+	err = services.CreateOrUpdateFile(access_token, owner, repo, fmt.Sprintf("data/%s/index-%d.json", ctSlug, page), fmt.Sprintf("Update index page %d for %s", page, ctSlug), string(updatedIndexJson), newBranchName)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "Failed to update index file"})
+		return
+	}
+
+	err = services.MergeBranch(access_token, owner, repo, newBranchName, fmt.Sprintf("Edit content value - %s/%s", ctSlug, id))
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to merge branch"})
 		return
 	}
 
