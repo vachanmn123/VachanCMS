@@ -2,13 +2,40 @@ package services
 
 import (
 	"context"
+	"net/http"
+	"sync"
+	"time"
 
 	"github.com/google/go-github/v62/github"
 )
 
+var (
+	// httpClient is shared across all calls to maintain TCP/TLS connections
+	httpClient *http.Client
+	once       sync.Once
+)
+
+// getClient returns a github.Client using the global pooled http.Client
+func getClient(token string) *github.Client {
+	once.Do(func() {
+		// 1. Create the base pooled transport
+		baseTransport := &http.Transport{
+			MaxIdleConns:        100,
+			MaxIdleConnsPerHost: 100,
+			IdleConnTimeout:     90 * time.Second,
+		}
+
+		httpClient = &http.Client{
+			Timeout:   time.Second * 30,
+			Transport: baseTransport,
+		}
+	})
+	return github.NewClient(httpClient).WithAuthToken(token)
+}
+
 func ListRepos(token string) ([]*github.Repository, error) {
 	ctx := context.Background()
-	gh_client := github.NewTokenClient(ctx, token)
+	gh_client := getClient(token)
 	repos, res, err := gh_client.Repositories.ListByAuthenticatedUser(ctx, &github.RepositoryListByAuthenticatedUserOptions{
 		Visibility: "all",
 		Sort:       "pushed_at",
@@ -29,7 +56,7 @@ func (e *FileNotFoundError) Error() string {
 
 func GetFileContents(token, user, repo, path string, branch ...string) (string, error) {
 	ctx := context.Background()
-	gh_client := github.NewTokenClient(ctx, token)
+	gh_client := getClient(token)
 	var refString string
 	if len(branch) == 0 {
 		refString = ""
@@ -57,7 +84,7 @@ func GetFileContents(token, user, repo, path string, branch ...string) (string, 
 
 func CreateOrUpdateFile(token, user, repo, path, message, content string, branch ...string) error {
 	ctx := context.Background()
-	gh_client := github.NewTokenClient(ctx, token)
+	gh_client := getClient(token)
 	var refString string
 	if len(branch) == 0 {
 		refString = ""
@@ -88,7 +115,7 @@ func CreateOrUpdateFile(token, user, repo, path, message, content string, branch
 
 func UploadFile(token, user, repo, path, message string, content []byte, branch ...string) error {
 	ctx := context.Background()
-	gh_client := github.NewTokenClient(ctx, token)
+	gh_client := getClient(token)
 	var refString string
 	if len(branch) == 0 {
 		refString = ""
@@ -124,7 +151,7 @@ type PageConfig struct {
 
 func GetPagesConfig(token, user, repo string) (*PageConfig, error) {
 	ctx := context.Background()
-	gh_client := github.NewTokenClient(ctx, token)
+	gh_client := getClient(token)
 
 	pagesConfig, res, err := gh_client.Repositories.GetPagesInfo(ctx, user, repo)
 	if err != nil || res.StatusCode != 200 {
@@ -144,7 +171,7 @@ func GetPagesConfig(token, user, repo string) (*PageConfig, error) {
 
 func CreateBranch(token, user, repo, newBranch string, srcBranch ...string) error {
 	ctx := context.Background()
-	gh_client := github.NewTokenClient(ctx, token)
+	gh_client := getClient(token)
 
 	gh_repo, _, err := gh_client.Repositories.Get(ctx, user, repo)
 	if err != nil {
@@ -180,7 +207,7 @@ func CreateBranch(token, user, repo, newBranch string, srcBranch ...string) erro
 
 func MergeBranch(token, user, repo, fromBranch, message string, toBranch ...string) error {
 	ctx := context.Background()
-	gh_client := github.NewTokenClient(ctx, token)
+	gh_client := getClient(token)
 	var baseBranchName string
 	if len(toBranch) == 0 {
 		gh_repo, _, err := gh_client.Repositories.Get(ctx, user, repo)
@@ -209,7 +236,7 @@ func MergeBranch(token, user, repo, fromBranch, message string, toBranch ...stri
 
 func IsRepoEmpty(token, user, repo string) (bool, string, error) {
 	ctx := context.Background()
-	gh_client := github.NewTokenClient(ctx, token)
+	gh_client := getClient(token)
 
 	// Get repository details to find default branch
 	gh_repo, _, err := gh_client.Repositories.Get(ctx, user, repo)
