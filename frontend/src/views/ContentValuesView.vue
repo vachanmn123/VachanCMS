@@ -156,6 +156,10 @@ function openAddDialog() {
       newValue.value[field.field_name] = false
     } else if (field.field_type === 'number') {
       newValue.value[field.field_name] = 0
+    } else if (field.field_type === 'media') {
+      // Initialize as empty array for multiple, empty string for single
+      const isMultiple = field.options?.includes('multiple')
+      newValue.value[field.field_name] = isMultiple ? [] : ''
     } else {
       newValue.value[field.field_name] = ''
     }
@@ -210,6 +214,10 @@ async function saveValue() {
 function formatCellValue(value: unknown): string {
   if (value === null || value === undefined) return '-'
   if (typeof value === 'boolean') return value ? 'Yes' : 'No'
+  if (Array.isArray(value)) {
+    if (value.length === 0) return '-'
+    return `${value.length} item${value.length === 1 ? '' : 's'}`
+  }
   if (typeof value === 'object') return JSON.stringify(value)
   return String(value)
 }

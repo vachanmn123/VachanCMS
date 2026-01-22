@@ -82,7 +82,7 @@ interface FieldDraft {
   field_name: string
   field_type: string
   is_required: boolean
-  options: string
+  options: string[]
 }
 
 const route = useRoute()
@@ -162,7 +162,7 @@ function addField() {
     field_name: '',
     field_type: 'text',
     is_required: false,
-    options: '',
+    options: [],
   })
 }
 
@@ -177,10 +177,18 @@ function resetNewTypeForm() {
 async function createType() {
   const payload = {
     ...newType.value,
-    fields: newType.value.fields.map((f) => ({
-      ...f,
-      options: f.field_type === 'select' ? f.options.split(',').map((s) => s.trim()) : [],
-    })),
+    fields: newType.value.fields.map((f) => {
+      let options: string[] = []
+      if (f.field_type === 'select') {
+        options = f.options
+      } else if (f.field_type === 'media' && f.options.includes('multiple')) {
+        options = ['multiple']
+      }
+      return {
+        ...f,
+        options,
+      }
+    }),
   }
 
   creating.value = true
@@ -479,9 +487,11 @@ function goToMedia() {
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="text">Text</SelectItem>
+                            <SelectItem value="textarea">Textarea</SelectItem>
                             <SelectItem value="number">Number</SelectItem>
                             <SelectItem value="boolean">Boolean</SelectItem>
                             <SelectItem value="select">Select</SelectItem>
+                            <SelectItem value="media">Media</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
@@ -491,9 +501,37 @@ function goToMedia() {
                       <Label :for="`field-options-${index}`">Options (comma separated)</Label>
                       <Input
                         :id="`field-options-${index}`"
-                        v-model="field.options"
+                        :model-value="field.options.join(', ')"
+                        @update:model-value="
+                          (val: string | number) =>
+                            (field.options = String(val)
+                              .split(',')
+                              .map((s) => s.trim())
+                              .filter((s) => s !== ''))
+                        "
                         placeholder="e.g., draft, published, archived"
                       />
+                    </div>
+
+                    <div v-if="field.field_type === 'media'" class="space-y-2">
+                      <div class="flex items-center space-x-2">
+                        <Checkbox
+                          :id="`field-multiple-${index}`"
+                          :checked="field.options.includes('multiple')"
+                          @update:model-value="
+                            (val) => {
+                              if (val === true) {
+                                field.options = ['multiple']
+                              } else {
+                                field.options = []
+                              }
+                            }
+                          "
+                        />
+                        <Label :for="`field-multiple-${index}`" class="text-sm font-normal">
+                          Allow multiple media selection
+                        </Label>
+                      </div>
                     </div>
 
                     <div class="flex items-center justify-between">
@@ -501,7 +539,15 @@ function goToMedia() {
                         <Checkbox
                           :id="`field-required-${index}`"
                           :checked="field.is_required"
-                          @update:checked="(val: boolean) => (field.is_required = !!val)"
+                          @update:model-value="
+                            (v) => {
+                              if (v === true) {
+                                field.is_required = true
+                              } else {
+                                field.is_required = false
+                              }
+                            }
+                          "
                         />
                         <Label :for="`field-required-${index}`" class="text-sm font-normal">
                           Required field

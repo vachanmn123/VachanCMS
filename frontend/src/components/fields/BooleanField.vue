@@ -34,7 +34,12 @@ function emitUpdate(value: boolean) {
 
 <template>
   <div class="flex items-center space-x-3 rounded-md border p-3">
-    <Checkbox :id="label" :checked="localValue" :required="required" @update:checked="emitUpdate" />
+    <Checkbox
+      :id="label"
+      :checked="localValue"
+      :required="required"
+      @update:modelValue="(v) => (v === true ? emitUpdate(true) : emitUpdate(false))"
+    />
     <Label :for="label" class="cursor-pointer font-normal">
       {{ label }}
       <span v-if="required" class="text-destructive">*</span>

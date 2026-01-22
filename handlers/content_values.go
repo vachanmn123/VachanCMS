@@ -130,7 +130,7 @@ func CreateValueOfType(c *gin.Context) {
 		fieldDef := &contentType.Fields[fieldIndex]
 
 		switch fieldDef.FieldType {
-		case "text":
+		case "text", "textarea":
 			_, ok := value.(string)
 			if !ok {
 				c.JSON(400, gin.H{"error": fmt.Sprintf("Field %s should be a string", key)})
@@ -158,6 +158,46 @@ func CreateValueOfType(c *gin.Context) {
 			if !validOption {
 				c.JSON(400, gin.H{"error": fmt.Sprintf("Field %s has invalid option %s", key, strVal)})
 				return
+			}
+		case "media":
+			isMultiple := slices.Contains(fieldDef.Options, "multiple")
+			var mediaIds []string
+
+			if isMultiple {
+				arr, ok := value.([]interface{})
+				if !ok {
+					c.JSON(400, gin.H{"error": fmt.Sprintf("Field %s should be an array of media IDs", key)})
+					return
+				}
+				for _, item := range arr {
+					strVal, ok := item.(string)
+					if !ok {
+						c.JSON(400, gin.H{"error": fmt.Sprintf("Field %s should contain string media IDs", key)})
+						return
+					}
+					mediaIds = append(mediaIds, strVal)
+				}
+			} else {
+				strVal, ok := value.(string)
+				if !ok {
+					c.JSON(400, gin.H{"error": fmt.Sprintf("Field %s should be a string media ID", key)})
+					return
+				}
+				if strVal != "" {
+					mediaIds = []string{strVal}
+				}
+			}
+
+			if len(mediaIds) > 0 {
+				invalidIds, err := services.ValidateMediaIds(access_token, owner, repo, mediaIds)
+				if err != nil {
+					c.JSON(500, gin.H{"error": "Failed to validate media references"})
+					return
+				}
+				if len(invalidIds) > 0 {
+					c.JSON(400, gin.H{"error": fmt.Sprintf("Invalid media ID(s) for field %s: %v", key, invalidIds)})
+					return
+				}
 			}
 		default:
 			c.JSON(400, gin.H{"error": fmt.Sprintf("Unsupported field type %s for field %s", fieldDef.FieldType, key)})
@@ -318,7 +358,7 @@ func UpdateValueById(c *gin.Context) {
 		fieldDef := &contentType.Fields[fieldIndex]
 
 		switch fieldDef.FieldType {
-		case "text":
+		case "text", "textarea":
 			_, ok := value.(string)
 			if !ok {
 				c.JSON(400, gin.H{"error": fmt.Sprintf("Field %s should be a string", key)})
@@ -346,6 +386,46 @@ func UpdateValueById(c *gin.Context) {
 			if !validOption {
 				c.JSON(400, gin.H{"error": fmt.Sprintf("Field %s has invalid option %s", key, strVal)})
 				return
+			}
+		case "media":
+			isMultiple := slices.Contains(fieldDef.Options, "multiple")
+			var mediaIds []string
+
+			if isMultiple {
+				arr, ok := value.([]interface{})
+				if !ok {
+					c.JSON(400, gin.H{"error": fmt.Sprintf("Field %s should be an array of media IDs", key)})
+					return
+				}
+				for _, item := range arr {
+					strVal, ok := item.(string)
+					if !ok {
+						c.JSON(400, gin.H{"error": fmt.Sprintf("Field %s should contain string media IDs", key)})
+						return
+					}
+					mediaIds = append(mediaIds, strVal)
+				}
+			} else {
+				strVal, ok := value.(string)
+				if !ok {
+					c.JSON(400, gin.H{"error": fmt.Sprintf("Field %s should be a string media ID", key)})
+					return
+				}
+				if strVal != "" {
+					mediaIds = []string{strVal}
+				}
+			}
+
+			if len(mediaIds) > 0 {
+				invalidIds, err := services.ValidateMediaIds(access_token, owner, repo, mediaIds)
+				if err != nil {
+					c.JSON(500, gin.H{"error": "Failed to validate media references"})
+					return
+				}
+				if len(invalidIds) > 0 {
+					c.JSON(400, gin.H{"error": fmt.Sprintf("Invalid media ID(s) for field %s: %v", key, invalidIds)})
+					return
+				}
 			}
 		default:
 			c.JSON(400, gin.H{"error": fmt.Sprintf("Unsupported field type %s for field %s", fieldDef.FieldType, key)})
