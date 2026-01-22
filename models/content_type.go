@@ -17,8 +17,10 @@ type ContentTypeField struct {
 }
 
 type ContentType struct {
-	Id     string             `json:"id,omitempty"`
-	Name   string             `json:"name" binding:"required"`
-	Slug   string             `json:"slug" binding:"required"`
-	Fields []ContentTypeField `json:"fields" binding:"required"`
+	Id           string             `json:"id,omitempty"`
+	Name         string             `json:"name" binding:"required"`
+	Slug         string             `json:"slug" binding:"required"`
+	Fields       []ContentTypeField `json:"fields" binding:"required"`
+	ItemsPerPage int                `json:"items_per_page,omitempty"` // Number of items per page (default: 10, min: 1, max: 100)
+	AddTo        string             `json:"add_to,omitempty"`         // Where to add new items: "top" or "bottom" (default: "bottom")
 }

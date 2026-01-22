@@ -29,6 +29,8 @@ func SetupRoutes(router gin.IRouter) {
 	repoGroup.POST("/:ctSlug", handlers.CreateValueOfType)
 	repoGroup.GET("/:ctSlug/:id", handlers.GetValueById)
 	repoGroup.PUT("/:ctSlug/:id", handlers.UpdateValueById)
+	repoGroup.DELETE("/:ctSlug/:id", handlers.DeleteValueById)
+	repoGroup.PUT("/:ctSlug/:id/reorder", handlers.ReorderValueById)
 
 	repoGroup.GET("/media", handlers.ListMedia)
 	repoGroup.POST("/media", handlers.UploadMedia)

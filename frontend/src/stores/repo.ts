@@ -16,6 +16,8 @@ export interface ContentType {
   name: string
   slug: string
   fields: ContentTypeField[]
+  items_per_page?: number // Number of items per page (default: 10, min: 1, max: 100)
+  add_to?: 'top' | 'bottom' // Where to add new items: "top" or "bottom" (default: "bottom")
 }
 
 export interface ContentTypeField {

@@ -101,6 +101,8 @@ const newType = ref({
   name: '',
   slug: '',
   fields: [] as FieldDraft[],
+  items_per_page: 10,
+  add_to: 'bottom' as 'top' | 'bottom',
 })
 
 const owner = computed(() => String(route.params.owner))
@@ -171,12 +173,15 @@ function removeField(index: number) {
 }
 
 function resetNewTypeForm() {
-  newType.value = { name: '', slug: '', fields: [] }
+  newType.value = { name: '', slug: '', fields: [], items_per_page: 10, add_to: 'bottom' }
 }
 
 async function createType() {
   const payload = {
-    ...newType.value,
+    name: newType.value.name,
+    slug: newType.value.slug,
+    items_per_page: newType.value.items_per_page,
+    add_to: newType.value.add_to,
     fields: newType.value.fields.map((f) => {
       let options: string[] = []
       if (f.field_type === 'select') {
@@ -442,6 +447,34 @@ function goToMedia() {
             <div class="space-y-2">
               <Label for="typeSlug">Slug</Label>
               <Input id="typeSlug" v-model="newType.slug" placeholder="e.g., blog-post" required />
+            </div>
+          </div>
+
+          <div class="grid gap-4 sm:grid-cols-2">
+            <div class="space-y-2">
+              <Label for="itemsPerPage">Items Per Page</Label>
+              <Input
+                id="itemsPerPage"
+                type="number"
+                v-model.number="newType.items_per_page"
+                min="1"
+                max="100"
+                placeholder="10"
+              />
+              <p class="text-xs text-muted-foreground">Number of items per page (1-100)</p>
+            </div>
+            <div class="space-y-2">
+              <Label for="addTo">Add New Items To</Label>
+              <Select v-model="newType.add_to">
+                <SelectTrigger id="addTo">
+                  <SelectValue placeholder="Select position" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="bottom">Bottom (oldest first)</SelectItem>
+                  <SelectItem value="top">Top (newest first)</SelectItem>
+                </SelectContent>
+              </Select>
+              <p class="text-xs text-muted-foreground">Where new entries appear in the list</p>
             </div>
           </div>
 

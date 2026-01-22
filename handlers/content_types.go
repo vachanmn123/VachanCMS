@@ -37,6 +37,22 @@ func CreateContentType(c *gin.Context) {
 
 	contentType.Id = uuid.New().String()
 
+	// Validate and set defaults for ItemsPerPage
+	if contentType.ItemsPerPage <= 0 {
+		contentType.ItemsPerPage = 10 // Default
+	} else if contentType.ItemsPerPage > 100 {
+		c.JSON(400, gin.H{"error": "ItemsPerPage must be between 1 and 100"})
+		return
+	}
+
+	// Validate and set defaults for AddTo
+	if contentType.AddTo == "" {
+		contentType.AddTo = "bottom" // Default
+	} else if contentType.AddTo != "top" && contentType.AddTo != "bottom" {
+		c.JSON(400, gin.H{"error": "AddTo must be 'top' or 'bottom'"})
+		return
+	}
+
 	configFile, err := services.GetRepoConfig(access_token, owner, repo)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "Failed to fetch or parse config"})
@@ -56,6 +72,7 @@ func CreateContentType(c *gin.Context) {
 	fileContent, err := json.Marshal(configFile)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "Failed to marshal config file"})
+		return
 	}
 
 	newBranchName := uuid.New().String()
@@ -71,12 +88,14 @@ func CreateContentType(c *gin.Context) {
 		return
 	}
 
+	// Initialize the content value config with Order array and ItemsPerPage from content type
 	contentTypeConfigFile := models.ContentValueConfigFile{
 		TotalPages:   1,
 		TotalItems:   0,
-		ItemsPerPage: 10,
+		ItemsPerPage: contentType.ItemsPerPage,
 		Items:        map[string]int{},
 		Slugs:        map[string]string{},
+		Order:        []string{},
 	}
 	contentTypeConfigFileJson, err := json.Marshal(contentTypeConfigFile)
 	if err != nil {
@@ -89,6 +108,10 @@ func CreateContentType(c *gin.Context) {
 		Items: []models.ContentValue{},
 	}
 	contentValueIndexFileJson, err := json.Marshal(contentValueIndexFile)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to marshal content value index file"})
+		return
+	}
 
 	// Create a new folder under the data/ directory for this content type
 	err = services.CreateOrUpdateFile(access_token, owner, repo, fmt.Sprintf("data/%s/config.json", contentType.Slug), fmt.Sprintf("Create data folder for content type: %s", contentType.Name), string(contentTypeConfigFileJson), newBranchName)

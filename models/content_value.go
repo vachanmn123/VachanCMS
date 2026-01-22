@@ -5,8 +5,9 @@ type ContentValueConfigFile struct {
 	TotalPages   int               `json:"total_pages"`
 	TotalItems   int               `json:"total_items"`
 	ItemsPerPage int               `json:"items_per_page"`
-	Items        map[string]int    `json:"items"` // map of content value ID to page
-	Slugs        map[string]string `json:"slugs"` // map of slug to content value ID
+	Items        map[string]int    `json:"items"`           // map of content value ID to page
+	Slugs        map[string]string `json:"slugs"`           // map of slug to content value ID
+	Order        []string          `json:"order,omitempty"` // ordered list of content value IDs (source of truth for ordering)
 }
 
 // This is the data/<CTSlug>/index-<PAGE>.json file that will be used by the CMS to list content values

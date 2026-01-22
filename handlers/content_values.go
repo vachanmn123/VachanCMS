@@ -70,7 +70,12 @@ func ListValuesByType(c *gin.Context) {
 		return
 	}
 
-	c.JSON(200, values)
+	c.JSON(200, gin.H{
+		"page":        values.Page,
+		"items":       values.Items,
+		"total_pages": config.TotalPages,
+		"total_items": config.TotalItems,
+	})
 }
 
 func GetValueById(c *gin.Context) {
@@ -122,106 +127,15 @@ func CreateValueOfType(c *gin.Context) {
 		return
 	}
 
-	var contentType *models.ContentType
-	for _, ct := range configFile.ContentTypes {
-		if ct.Slug == ctSlug {
-			contentType = &ct
-			break
-		}
-	}
+	contentType := services.GetContentTypeFromConfig(configFile, ctSlug)
 	if contentType == nil {
 		c.JSON(400, gin.H{"error": "Content type not found"})
 		return
 	}
 
-	// Validate newValue fields here
-	for key, value := range newValue.Value {
-		fieldIndex := slices.IndexFunc(contentType.Fields, func(f models.ContentTypeField) bool {
-			if f.FieldName == key {
-				return true
-			}
-			return false
-		})
-		if fieldIndex == -1 {
-			c.JSON(400, gin.H{"error": fmt.Sprintf("Field %s is not defined in content type", key)})
-			return
-		}
-		fieldDef := &contentType.Fields[fieldIndex]
-
-		switch fieldDef.FieldType {
-		case "text", "textarea":
-			_, ok := value.(string)
-			if !ok {
-				c.JSON(400, gin.H{"error": fmt.Sprintf("Field %s should be a string", key)})
-				return
-			}
-		case "number":
-			_, ok := value.(float64)
-			if !ok {
-				c.JSON(400, gin.H{"error": fmt.Sprintf("Field %s should be a number", key)})
-				return
-			}
-		case "boolean":
-			_, ok := value.(bool)
-			if !ok {
-				c.JSON(400, gin.H{"error": fmt.Sprintf("Field %s should be a boolean", key)})
-				return
-			}
-		case "select":
-			strVal, ok := value.(string)
-			if !ok {
-				c.JSON(400, gin.H{"error": fmt.Sprintf("Field %s should be a string", key)})
-				return
-			}
-			validOption := slices.Contains(fieldDef.Options, strVal)
-			if !validOption {
-				c.JSON(400, gin.H{"error": fmt.Sprintf("Field %s has invalid option %s", key, strVal)})
-				return
-			}
-		case "media":
-			isMultiple := slices.Contains(fieldDef.Options, "multiple")
-			var mediaIds []string
-
-			if isMultiple {
-				arr, ok := value.([]interface{})
-				if !ok {
-					c.JSON(400, gin.H{"error": fmt.Sprintf("Field %s should be an array of media IDs", key)})
-					return
-				}
-				for _, item := range arr {
-					strVal, ok := item.(string)
-					if !ok {
-						c.JSON(400, gin.H{"error": fmt.Sprintf("Field %s should contain string media IDs", key)})
-						return
-					}
-					mediaIds = append(mediaIds, strVal)
-				}
-			} else {
-				strVal, ok := value.(string)
-				if !ok {
-					c.JSON(400, gin.H{"error": fmt.Sprintf("Field %s should be a string media ID", key)})
-					return
-				}
-				if strVal != "" {
-					mediaIds = []string{strVal}
-				}
-			}
-
-			if len(mediaIds) > 0 {
-				invalidIds, err := services.ValidateMediaIds(access_token, owner, repo, mediaIds)
-				if err != nil {
-					c.JSON(500, gin.H{"error": "Failed to validate media references"})
-					return
-				}
-				if len(invalidIds) > 0 {
-					c.JSON(400, gin.H{"error": fmt.Sprintf("Invalid media ID(s) for field %s: %v", key, invalidIds)})
-					return
-				}
-			}
-		default:
-			c.JSON(400, gin.H{"error": fmt.Sprintf("Unsupported field type %s for field %s", fieldDef.FieldType, key)})
-			return
-		}
+	// Validate newValue fields
+	if err := validateContentValueFields(c, &newValue, contentType, access_token, owner, repo); err != nil {
+		return // Error response already sent by validateContentValueFields
 	}
 
 	newValue.Id = uuid.New().String()
@@ -246,23 +160,17 @@ func CreateValueOfType(c *gin.Context) {
 		return
 	}
 
-	// Fetch config to check slug uniqueness
-	configContents, err := services.GetFileContents(access_token, owner, repo, fmt.Sprintf("data/%s/config.json", ctSlug), newBranchName)
+	// Fetch config
+	config, err := services.GetContentValueConfig(access_token, owner, repo, ctSlug, newBranchName)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "Failed to fetch content values config"})
 		return
 	}
 
-	var config models.ContentValueConfigFile
-	err = json.Unmarshal([]byte(configContents), &config)
-	if err != nil {
-		c.JSON(500, gin.H{"error": "Failed to parse content values config"})
+	// Migrate to Order if needed (for existing content types without Order)
+	if err := services.MigrateConfigToOrder(access_token, owner, repo, ctSlug, newBranchName, config); err != nil {
+		c.JSON(500, gin.H{"error": "Failed to migrate config"})
 		return
-	}
-
-	// Initialize slugs map if nil
-	if config.Slugs == nil {
-		config.Slugs = make(map[string]string)
 	}
 
 	// Check slug uniqueness if provided
@@ -283,65 +191,44 @@ func CreateValueOfType(c *gin.Context) {
 		config.Slugs[newValue.Slug] = newValue.Id
 	}
 
-	targetPage := (config.TotalItems + config.ItemsPerPage) / config.ItemsPerPage
-	if targetPage > config.TotalPages {
-		// Create new page
-		newIndexFile := models.ContentValueIndexFile{
-			Page:  targetPage,
-			Items: []models.ContentValue{},
+	// Add to Order based on AddTo setting
+	addTo := contentType.AddTo
+	if addTo == "" {
+		addTo = "bottom" // Default
+	}
+
+	if addTo == "top" {
+		// Prepend to Order
+		config.Order = append([]string{newValue.Id}, config.Order...)
+	} else {
+		// Append to Order (bottom)
+		config.Order = append(config.Order, newValue.Id)
+	}
+
+	// Regenerate indexes
+	if addTo == "top" {
+		// If adding to top, regenerate from page 1
+		err = services.RegenerateIndexes(access_token, owner, repo, ctSlug, newBranchName, config)
+	} else {
+		// If adding to bottom, only regenerate from the last page
+		lastPage := config.TotalPages
+		if lastPage < 1 {
+			lastPage = 1
 		}
-		newIndexJson, err := json.Marshal(newIndexFile)
-		if err != nil {
-			c.JSON(500, gin.H{"error": "Failed to marshal new index file"})
-			return
-		}
-		err = services.CreateOrUpdateFile(access_token, owner, repo, fmt.Sprintf("data/%s/index-%d.json", ctSlug, targetPage), fmt.Sprintf("Create new index page %d for %s", targetPage, ctSlug), string(newIndexJson), newBranchName)
-		if err != nil {
-			c.JSON(500, gin.H{"error": "Failed to create new index file"})
-			return
-		}
-		config.TotalPages = targetPage
+		err = services.RegenerateIndexesFromPage(access_token, owner, repo, ctSlug, newBranchName, config, lastPage)
 	}
-
-	// Read and update the target page's index
-	indexContents, err := services.GetFileContents(access_token, owner, repo, fmt.Sprintf("data/%s/index-%d.json", ctSlug, targetPage), newBranchName)
 	if err != nil {
-		c.JSON(500, gin.H{"error": "Failed to fetch target index file"})
+		c.JSON(500, gin.H{"error": "Failed to regenerate indexes"})
 		return
 	}
 
-	var indexFile models.ContentValueIndexFile
-	err = json.Unmarshal([]byte(indexContents), &indexFile)
-	if err != nil {
-		c.JSON(500, gin.H{"error": "Failed to parse target index file"})
-		return
-	}
+	config.TotalPages = (len(config.Order)-1)/config.ItemsPerPage + 1
+	config.TotalItems = len(config.Order)
 
-	indexFile.Items = append(indexFile.Items, newValue)
-	updatedIndexJson, err := json.Marshal(indexFile)
+	// Save config
+	err = services.SaveContentValueConfig(access_token, owner, repo, ctSlug, newBranchName, config)
 	if err != nil {
-		c.JSON(500, gin.H{"error": "Failed to marshal updated index file"})
-		return
-	}
-
-	err = services.CreateOrUpdateFile(access_token, owner, repo, fmt.Sprintf("data/%s/index-%d.json", ctSlug, targetPage), fmt.Sprintf("Update index page %d for %s", targetPage, ctSlug), string(updatedIndexJson), newBranchName)
-	if err != nil {
-		c.JSON(500, gin.H{"error": "Failed to update index file"})
-		return
-	}
-
-	// Update config
-	config.TotalItems++
-	config.Items[newValue.Id] = targetPage
-	updatedConfigJson, err := json.Marshal(config)
-	if err != nil {
-		c.JSON(500, gin.H{"error": "Failed to marshal updated config"})
-		return
-	}
-
-	err = services.CreateOrUpdateFile(access_token, owner, repo, fmt.Sprintf("data/%s/config.json", ctSlug), fmt.Sprintf("Update config for %s", ctSlug), string(updatedConfigJson), newBranchName)
-	if err != nil {
-		c.JSON(500, gin.H{"error": "Failed to update config"})
+		c.JSON(500, gin.H{"error": "Failed to save config"})
 		return
 	}
 
@@ -383,106 +270,15 @@ func UpdateValueById(c *gin.Context) {
 		return
 	}
 
-	var contentType *models.ContentType
-	for _, ct := range configFile.ContentTypes {
-		if ct.Slug == ctSlug {
-			contentType = &ct
-			break
-		}
-	}
+	contentType := services.GetContentTypeFromConfig(configFile, ctSlug)
 	if contentType == nil {
 		c.JSON(400, gin.H{"error": "Content type not found"})
 		return
 	}
 
-	// Validate newValue fields here
-	for key, value := range updatedValue.Value {
-		fieldIndex := slices.IndexFunc(contentType.Fields, func(f models.ContentTypeField) bool {
-			if f.FieldName == key {
-				return true
-			}
-			return false
-		})
-		if fieldIndex == -1 {
-			c.JSON(400, gin.H{"error": fmt.Sprintf("Field %s is not defined in content type", key)})
-			return
-		}
-		fieldDef := &contentType.Fields[fieldIndex]
-
-		switch fieldDef.FieldType {
-		case "text", "textarea":
-			_, ok := value.(string)
-			if !ok {
-				c.JSON(400, gin.H{"error": fmt.Sprintf("Field %s should be a string", key)})
-				return
-			}
-		case "number":
-			_, ok := value.(float64)
-			if !ok {
-				c.JSON(400, gin.H{"error": fmt.Sprintf("Field %s should be a number", key)})
-				return
-			}
-		case "boolean":
-			_, ok := value.(bool)
-			if !ok {
-				c.JSON(400, gin.H{"error": fmt.Sprintf("Field %s should be a boolean", key)})
-				return
-			}
-		case "select":
-			strVal, ok := value.(string)
-			if !ok {
-				c.JSON(400, gin.H{"error": fmt.Sprintf("Field %s should be a string", key)})
-				return
-			}
-			validOption := slices.Contains(fieldDef.Options, strVal)
-			if !validOption {
-				c.JSON(400, gin.H{"error": fmt.Sprintf("Field %s has invalid option %s", key, strVal)})
-				return
-			}
-		case "media":
-			isMultiple := slices.Contains(fieldDef.Options, "multiple")
-			var mediaIds []string
-
-			if isMultiple {
-				arr, ok := value.([]interface{})
-				if !ok {
-					c.JSON(400, gin.H{"error": fmt.Sprintf("Field %s should be an array of media IDs", key)})
-					return
-				}
-				for _, item := range arr {
-					strVal, ok := item.(string)
-					if !ok {
-						c.JSON(400, gin.H{"error": fmt.Sprintf("Field %s should contain string media IDs", key)})
-						return
-					}
-					mediaIds = append(mediaIds, strVal)
-				}
-			} else {
-				strVal, ok := value.(string)
-				if !ok {
-					c.JSON(400, gin.H{"error": fmt.Sprintf("Field %s should be a string media ID", key)})
-					return
-				}
-				if strVal != "" {
-					mediaIds = []string{strVal}
-				}
-			}
-
-			if len(mediaIds) > 0 {
-				invalidIds, err := services.ValidateMediaIds(access_token, owner, repo, mediaIds)
-				if err != nil {
-					c.JSON(500, gin.H{"error": "Failed to validate media references"})
-					return
-				}
-				if len(invalidIds) > 0 {
-					c.JSON(400, gin.H{"error": fmt.Sprintf("Invalid media ID(s) for field %s: %v", key, invalidIds)})
-					return
-				}
-			}
-		default:
-			c.JSON(400, gin.H{"error": fmt.Sprintf("Unsupported field type %s for field %s", fieldDef.FieldType, key)})
-			return
-		}
+	// Validate fields
+	if err := validateContentValueFields(c, &updatedValue, contentType, access_token, owner, repo); err != nil {
+		return
 	}
 
 	updatedValueJson, err := json.Marshal(updatedValue)
@@ -505,22 +301,16 @@ func UpdateValueById(c *gin.Context) {
 		return
 	}
 
-	configContents, err := services.GetFileContents(access_token, owner, repo, fmt.Sprintf("data/%s/config.json", ctSlug), newBranchName)
+	config, err := services.GetContentValueConfig(access_token, owner, repo, ctSlug, newBranchName)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "Failed to fetch content values config"})
 		return
 	}
 
-	var config models.ContentValueConfigFile
-	err = json.Unmarshal([]byte(configContents), &config)
-	if err != nil {
-		c.JSON(500, gin.H{"error": "Failed to parse content values config"})
+	// Migrate if needed
+	if err := services.MigrateConfigToOrder(access_token, owner, repo, ctSlug, newBranchName, config); err != nil {
+		c.JSON(500, gin.H{"error": "Failed to migrate config"})
 		return
-	}
-
-	// Initialize slugs map if nil
-	if config.Slugs == nil {
-		config.Slugs = make(map[string]string)
 	}
 
 	// Find the old slug for this ID (if any)
@@ -614,15 +404,12 @@ func UpdateValueById(c *gin.Context) {
 		return
 	}
 
+	config.TotalPages = (len(config.Order)-1)/config.ItemsPerPage + 1
+	config.TotalItems = len(config.Order)
+
 	// Update config if slugs changed
 	if configChanged {
-		updatedConfigJson, err := json.Marshal(config)
-		if err != nil {
-			c.JSON(500, gin.H{"error": "Failed to marshal updated config"})
-			return
-		}
-
-		err = services.CreateOrUpdateFile(access_token, owner, repo, fmt.Sprintf("data/%s/config.json", ctSlug), fmt.Sprintf("Update config for %s", ctSlug), string(updatedConfigJson), newBranchName)
+		err = services.SaveContentValueConfig(access_token, owner, repo, ctSlug, newBranchName, config)
 		if err != nil {
 			c.JSON(500, gin.H{"error": "Failed to update config"})
 			return
@@ -636,4 +423,307 @@ func UpdateValueById(c *gin.Context) {
 	}
 
 	c.JSON(200, updatedValue)
+}
+
+func DeleteValueById(c *gin.Context) {
+	owner := c.Param("owner")
+	repo := c.Param("repo")
+	ctSlug := c.Param("ctSlug")
+	id := c.Param("id")
+	access_token := c.GetString("user_access_token")
+
+	// Create branch for changes
+	newBranchName := uuid.New().String()
+	err := services.CreateBranch(access_token, owner, repo, newBranchName)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to create new branch"})
+		return
+	}
+
+	// Fetch config
+	config, err := services.GetContentValueConfig(access_token, owner, repo, ctSlug, newBranchName)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to fetch content values config"})
+		return
+	}
+
+	// Migrate if needed
+	if err := services.MigrateConfigToOrder(access_token, owner, repo, ctSlug, newBranchName, config); err != nil {
+		c.JSON(500, gin.H{"error": "Failed to migrate config"})
+		return
+	}
+
+	// Check if ID exists in Order
+	idIndex := -1
+	for i, orderId := range config.Order {
+		if orderId == id {
+			idIndex = i
+			break
+		}
+	}
+	if idIndex == -1 {
+		c.JSON(404, gin.H{"error": "Content value not found"})
+		return
+	}
+
+	// Find the page where this item is located
+	affectedPage := config.Items[id]
+
+	// Delete the main id.json file
+	err = services.DeleteFile(access_token, owner, repo, fmt.Sprintf("data/%s/%s.json", ctSlug, id), fmt.Sprintf("Delete content value %s from %s", id, ctSlug), newBranchName)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to delete content value file"})
+		return
+	}
+
+	// Delete slug file if exists
+	for slug, valueId := range config.Slugs {
+		if valueId == id {
+			err = services.DeleteFile(access_token, owner, repo, fmt.Sprintf("data/%s/%s.json", ctSlug, slug), fmt.Sprintf("Delete slug file for content value %s", id), newBranchName)
+			if err != nil {
+				// Log but continue - slug file may already be deleted
+				fmt.Println("[WARN] Failed to delete slug file:", err)
+			}
+			delete(config.Slugs, slug)
+			break
+		}
+	}
+
+	// Remove from Order
+	config.Order = append(config.Order[:idIndex], config.Order[idIndex+1:]...)
+
+	// Remove from Items map
+	delete(config.Items, id)
+
+	// Regenerate indexes from affected page onward
+	err = services.RegenerateIndexesFromPage(access_token, owner, repo, ctSlug, newBranchName, config, affectedPage)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to regenerate indexes"})
+		return
+	}
+
+	config.TotalPages = (len(config.Order)-1)/config.ItemsPerPage + 1
+	config.TotalItems = len(config.Order)
+
+	// Save config
+	err = services.SaveContentValueConfig(access_token, owner, repo, ctSlug, newBranchName, config)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to save config"})
+		return
+	}
+
+	err = services.MergeBranch(access_token, owner, repo, newBranchName, fmt.Sprintf("Deleted content value - %s/%s", ctSlug, id))
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to merge branch"})
+		return
+	}
+
+	c.JSON(200, gin.H{"message": "Content value deleted successfully"})
+}
+
+// ReorderValueRequest is the request body for reordering a content value
+type ReorderValueRequest struct {
+	Position int `json:"position" binding:"required"`
+}
+
+func ReorderValueById(c *gin.Context) {
+	owner := c.Param("owner")
+	repo := c.Param("repo")
+	ctSlug := c.Param("ctSlug")
+	id := c.Param("id")
+	access_token := c.GetString("user_access_token")
+
+	var req ReorderValueRequest
+	if err := c.BindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": "Invalid request body. Position is required."})
+		return
+	}
+
+	// Create branch for changes
+	newBranchName := uuid.New().String()
+	err := services.CreateBranch(access_token, owner, repo, newBranchName)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to create new branch"})
+		return
+	}
+
+	// Fetch config
+	config, err := services.GetContentValueConfig(access_token, owner, repo, ctSlug, newBranchName)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to fetch content values config"})
+		return
+	}
+
+	// Migrate if needed
+	if err := services.MigrateConfigToOrder(access_token, owner, repo, ctSlug, newBranchName, config); err != nil {
+		c.JSON(500, gin.H{"error": "Failed to migrate config"})
+		return
+	}
+
+	// Find current position of the item (1-based)
+	currentIndex := -1
+	for i, orderId := range config.Order {
+		if orderId == id {
+			currentIndex = i
+			break
+		}
+	}
+	if currentIndex == -1 {
+		c.JSON(404, gin.H{"error": "Content value not found"})
+		return
+	}
+
+	totalItems := len(config.Order)
+
+	// Validate position (1-based)
+	if req.Position < 1 || req.Position > totalItems {
+		c.JSON(400, gin.H{"error": fmt.Sprintf("Position must be between 1 and %d", totalItems)})
+		return
+	}
+
+	// Convert to 0-based index
+	newIndex := req.Position - 1
+
+	// If no change needed
+	if newIndex == currentIndex {
+		c.JSON(200, gin.H{"message": "No change needed", "position": req.Position})
+		return
+	}
+
+	// Calculate affected pages for partial regeneration
+	currentPage := (currentIndex / config.ItemsPerPage) + 1
+	newPage := (newIndex / config.ItemsPerPage) + 1
+	affectedFromPage := currentPage
+	if newPage < affectedFromPage {
+		affectedFromPage = newPage
+	}
+
+	// Remove from current position
+	config.Order = append(config.Order[:currentIndex], config.Order[currentIndex+1:]...)
+
+	// Insert at new position
+	// After removal, if newIndex >= currentIndex, we need to adjust
+	if newIndex > currentIndex {
+		newIndex-- // Adjust for the removal
+	}
+	if newIndex >= len(config.Order) {
+		config.Order = append(config.Order, id)
+	} else {
+		config.Order = append(config.Order[:newIndex], append([]string{id}, config.Order[newIndex:]...)...)
+	}
+
+	// Regenerate indexes from the earliest affected page
+	err = services.RegenerateIndexesFromPage(access_token, owner, repo, ctSlug, newBranchName, config, affectedFromPage)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to regenerate indexes"})
+		return
+	}
+
+	config.TotalPages = (len(config.Order)-1)/config.ItemsPerPage + 1
+	config.TotalItems = len(config.Order)
+
+	// Save config
+	err = services.SaveContentValueConfig(access_token, owner, repo, ctSlug, newBranchName, config)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to save config"})
+		return
+	}
+
+	err = services.MergeBranch(access_token, owner, repo, newBranchName, fmt.Sprintf("Reordered content value %s to position %d in %s", id, req.Position, ctSlug))
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to merge branch"})
+		return
+	}
+
+	c.JSON(200, gin.H{"message": "Content value reordered successfully", "position": req.Position})
+}
+
+// validateContentValueFields validates the fields of a content value against its content type definition
+func validateContentValueFields(c *gin.Context, value *models.ContentValue, contentType *models.ContentType, accessToken, owner, repo string) error {
+	for key, fieldValue := range value.Value {
+		fieldIndex := slices.IndexFunc(contentType.Fields, func(f models.ContentTypeField) bool {
+			return f.FieldName == key
+		})
+		if fieldIndex == -1 {
+			c.JSON(400, gin.H{"error": fmt.Sprintf("Field %s is not defined in content type", key)})
+			return fmt.Errorf("field not defined")
+		}
+		fieldDef := &contentType.Fields[fieldIndex]
+
+		switch fieldDef.FieldType {
+		case "text", "textarea":
+			_, ok := fieldValue.(string)
+			if !ok {
+				c.JSON(400, gin.H{"error": fmt.Sprintf("Field %s should be a string", key)})
+				return fmt.Errorf("invalid field type")
+			}
+		case "number":
+			_, ok := fieldValue.(float64)
+			if !ok {
+				c.JSON(400, gin.H{"error": fmt.Sprintf("Field %s should be a number", key)})
+				return fmt.Errorf("invalid field type")
+			}
+		case "boolean":
+			_, ok := fieldValue.(bool)
+			if !ok {
+				c.JSON(400, gin.H{"error": fmt.Sprintf("Field %s should be a boolean", key)})
+				return fmt.Errorf("invalid field type")
+			}
+		case "select":
+			strVal, ok := fieldValue.(string)
+			if !ok {
+				c.JSON(400, gin.H{"error": fmt.Sprintf("Field %s should be a string", key)})
+				return fmt.Errorf("invalid field type")
+			}
+			validOption := slices.Contains(fieldDef.Options, strVal)
+			if !validOption {
+				c.JSON(400, gin.H{"error": fmt.Sprintf("Field %s has invalid option %s", key, strVal)})
+				return fmt.Errorf("invalid option")
+			}
+		case "media":
+			isMultiple := slices.Contains(fieldDef.Options, "multiple")
+			var mediaIds []string
+
+			if isMultiple {
+				arr, ok := fieldValue.([]interface{})
+				if !ok {
+					c.JSON(400, gin.H{"error": fmt.Sprintf("Field %s should be an array of media IDs", key)})
+					return fmt.Errorf("invalid field type")
+				}
+				for _, item := range arr {
+					strVal, ok := item.(string)
+					if !ok {
+						c.JSON(400, gin.H{"error": fmt.Sprintf("Field %s should contain string media IDs", key)})
+						return fmt.Errorf("invalid field type")
+					}
+					mediaIds = append(mediaIds, strVal)
+				}
+			} else {
+				strVal, ok := fieldValue.(string)
+				if !ok {
+					c.JSON(400, gin.H{"error": fmt.Sprintf("Field %s should be a string media ID", key)})
+					return fmt.Errorf("invalid field type")
+				}
+				if strVal != "" {
+					mediaIds = []string{strVal}
+				}
+			}
+
+			if len(mediaIds) > 0 {
+				invalidIds, err := services.ValidateMediaIds(accessToken, owner, repo, mediaIds)
+				if err != nil {
+					c.JSON(500, gin.H{"error": "Failed to validate media references"})
+					return fmt.Errorf("validation error")
+				}
+				if len(invalidIds) > 0 {
+					c.JSON(400, gin.H{"error": fmt.Sprintf("Invalid media ID(s) for field %s: %v", key, invalidIds)})
+					return fmt.Errorf("invalid media ids")
+				}
+			}
+		default:
+			c.JSON(400, gin.H{"error": fmt.Sprintf("Unsupported field type %s for field %s", fieldDef.FieldType, key)})
+			return fmt.Errorf("unsupported field type")
+		}
+	}
+	return nil
 }
