@@ -53,11 +53,18 @@ const endpoints = computed(() => {
       example: `${base}data/${props.ctSlug}/index-1.json`,
     },
     {
-      label: 'Get single entry',
+      label: 'Get single entry by slug',
+      description: 'Returns a specific entry by its slug (preferred) or ID.',
+      usage: 'Replace {slug} with the entry slug (e.g., my-blog-post)',
+      url: `${base}data/${props.ctSlug}/{slug}.json`,
+      example: `${base}data/${props.ctSlug}/my-blog-post.json`,
+    },
+    {
+      label: 'Get single entry by ID',
       description: 'Returns a specific entry by its unique identifier.',
-      usage: 'Replace {id} with the entry ID from the list response',
+      usage: 'Replace {id} with the entry ID (UUID format)',
       url: `${base}data/${props.ctSlug}/{id}.json`,
-      example: `${base}data/${props.ctSlug}/abc123.json`,
+      example: `${base}data/${props.ctSlug}/abc123-def456.json`,
     },
   ]
 })
@@ -150,6 +157,14 @@ async function copyToClipboard(url: string, index: number) {
 
           <!-- Endpoints List -->
           <div v-else class="space-y-4">
+            <!-- Slug Tip -->
+            <div class="rounded-lg border border-primary/20 bg-primary/5 p-3">
+              <p class="text-xs text-primary">
+                <span class="font-medium">💡 Tip:</span> Add a slug to your entries for
+                human-readable URLs. Slugs are preferred over IDs when copying URLs.
+              </p>
+            </div>
+
             <Card v-for="(endpoint, index) in endpoints" :key="index">
               <CardHeader class="pb-2">
                 <div class="flex items-center justify-between">
@@ -208,7 +223,7 @@ async function copyToClipboard(url: string, index: number) {
               <h4 class="text-sm font-medium">Need Help?</h4>
               <p class="mt-1 text-xs text-muted-foreground">
                 These endpoints return JSON data. Use them in your frontend application with fetch()
-                or any HTTP client library.
+                or any HTTP client library. Prefer using slugs for cleaner, more memorable URLs.
               </p>
               <div class="mt-3">
                 <code class="block rounded-md bg-muted px-3 py-2 font-mono text-xs">

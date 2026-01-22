@@ -113,6 +113,33 @@ func CreateOrUpdateFile(token, user, repo, path, message, content string, branch
 	return nil
 }
 
+func DeleteFile(token, user, repo, path, message string, branch ...string) error {
+	ctx := context.Background()
+	gh_client := getClient(token)
+	var refString string
+	if len(branch) == 0 {
+		refString = ""
+	} else {
+		refString = branch[0]
+	}
+
+	fileContent, _, _, err := gh_client.Repositories.GetContents(ctx, user, repo, path, &github.RepositoryContentGetOptions{
+		Ref: refString,
+	})
+	if err != nil {
+		// File doesn't exist, nothing to delete
+		return nil
+	}
+
+	sha := fileContent.GetSHA()
+	_, _, err = gh_client.Repositories.DeleteFile(ctx, user, repo, path, &github.RepositoryContentFileOptions{
+		Message: &message,
+		SHA:     &sha,
+		Branch:  &refString,
+	})
+	return err
+}
+
 func UploadFile(token, user, repo, path, message string, content []byte, branch ...string) error {
 	ctx := context.Background()
 	gh_client := getClient(token)

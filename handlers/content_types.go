@@ -76,6 +76,7 @@ func CreateContentType(c *gin.Context) {
 		TotalItems:   0,
 		ItemsPerPage: 10,
 		Items:        map[string]int{},
+		Slugs:        map[string]string{},
 	}
 	contentTypeConfigFileJson, err := json.Marshal(contentTypeConfigFile)
 	if err != nil {

@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"slices"
 	"strconv"
 
@@ -11,6 +12,16 @@ import (
 	"github.com/vachanmn123/vachancms/models"
 	"github.com/vachanmn123/vachancms/services"
 )
+
+// slugRegex validates that slug is lowercase alphanumeric with hyphens
+var slugRegex = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+
+func validateSlug(slug string) bool {
+	if slug == "" {
+		return true // empty slug is valid (optional field)
+	}
+	return slugRegex.MatchString(slug)
+}
 
 func ListValuesByType(c *gin.Context) {
 	owner := c.Param("owner")
@@ -95,6 +106,14 @@ func CreateValueOfType(c *gin.Context) {
 	if err := c.BindJSON(&newValue); err != nil {
 		c.JSON(400, gin.H{"error": "Invalid request body"})
 		return
+	}
+
+	// Validate slug format if provided
+	if newValue.Slug != "" {
+		if !validateSlug(newValue.Slug) {
+			c.JSON(400, gin.H{"error": "Invalid slug format. Slug must be lowercase alphanumeric with hyphens (e.g., 'my-blog-post')"})
+			return
+		}
 	}
 
 	configFile, err := services.GetRepoConfig(access_token, owner, repo)
@@ -220,12 +239,14 @@ func CreateValueOfType(c *gin.Context) {
 		return
 	}
 
+	// Create the main id.json file
 	err = services.CreateOrUpdateFile(access_token, owner, repo, fmt.Sprintf("data/%s/%s.json", ctSlug, newValue.Id), fmt.Sprintf("Add new content value to %s", ctSlug), string(newValueJson), newBranchName)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "Failed to create new content value file"})
 		return
 	}
 
+	// Fetch config to check slug uniqueness
 	configContents, err := services.GetFileContents(access_token, owner, repo, fmt.Sprintf("data/%s/config.json", ctSlug), newBranchName)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "Failed to fetch content values config"})
@@ -237,6 +258,29 @@ func CreateValueOfType(c *gin.Context) {
 	if err != nil {
 		c.JSON(500, gin.H{"error": "Failed to parse content values config"})
 		return
+	}
+
+	// Initialize slugs map if nil
+	if config.Slugs == nil {
+		config.Slugs = make(map[string]string)
+	}
+
+	// Check slug uniqueness if provided
+	if newValue.Slug != "" {
+		if _, exists := config.Slugs[newValue.Slug]; exists {
+			c.JSON(400, gin.H{"error": fmt.Sprintf("Slug '%s' is already in use", newValue.Slug)})
+			return
+		}
+
+		// Create slug.json file
+		err = services.CreateOrUpdateFile(access_token, owner, repo, fmt.Sprintf("data/%s/%s.json", ctSlug, newValue.Slug), fmt.Sprintf("Add slug file for content value %s", newValue.Id), string(newValueJson), newBranchName)
+		if err != nil {
+			c.JSON(500, gin.H{"error": "Failed to create slug file"})
+			return
+		}
+
+		// Add slug to config
+		config.Slugs[newValue.Slug] = newValue.Id
 	}
 
 	targetPage := (config.TotalItems + config.ItemsPerPage) / config.ItemsPerPage
@@ -324,6 +368,14 @@ func UpdateValueById(c *gin.Context) {
 	}
 
 	updatedValue.Id = id
+
+	// Validate slug format if provided
+	if updatedValue.Slug != "" {
+		if !validateSlug(updatedValue.Slug) {
+			c.JSON(400, gin.H{"error": "Invalid slug format. Slug must be lowercase alphanumeric with hyphens (e.g., 'my-blog-post')"})
+			return
+		}
+	}
 
 	configFile, err := services.GetRepoConfig(access_token, owner, repo)
 	if err != nil {
@@ -446,6 +498,7 @@ func UpdateValueById(c *gin.Context) {
 		return
 	}
 
+	// Update the main id.json file
 	err = services.CreateOrUpdateFile(access_token, owner, repo, fmt.Sprintf("data/%s/%s.json", ctSlug, id), fmt.Sprintf("Update content value %s in %s", id, ctSlug), string(updatedValueJson), newBranchName)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "Failed to update content value file"})
@@ -463,6 +516,59 @@ func UpdateValueById(c *gin.Context) {
 	if err != nil {
 		c.JSON(500, gin.H{"error": "Failed to parse content values config"})
 		return
+	}
+
+	// Initialize slugs map if nil
+	if config.Slugs == nil {
+		config.Slugs = make(map[string]string)
+	}
+
+	// Find the old slug for this ID (if any)
+	var oldSlug string
+	for slug, valueId := range config.Slugs {
+		if valueId == id {
+			oldSlug = slug
+			break
+		}
+	}
+
+	// Handle slug changes
+	configChanged := false
+	if oldSlug != updatedValue.Slug {
+		// Delete old slug file if it existed
+		if oldSlug != "" {
+			err = services.DeleteFile(access_token, owner, repo, fmt.Sprintf("data/%s/%s.json", ctSlug, oldSlug), fmt.Sprintf("Remove old slug file for content value %s", id), newBranchName)
+			if err != nil {
+				c.JSON(500, gin.H{"error": "Failed to delete old slug file"})
+				return
+			}
+			delete(config.Slugs, oldSlug)
+			configChanged = true
+		}
+
+		// Create new slug file if slug is provided
+		if updatedValue.Slug != "" {
+			// Check slug uniqueness
+			if existingId, exists := config.Slugs[updatedValue.Slug]; exists && existingId != id {
+				c.JSON(400, gin.H{"error": fmt.Sprintf("Slug '%s' is already in use", updatedValue.Slug)})
+				return
+			}
+
+			err = services.CreateOrUpdateFile(access_token, owner, repo, fmt.Sprintf("data/%s/%s.json", ctSlug, updatedValue.Slug), fmt.Sprintf("Add slug file for content value %s", id), string(updatedValueJson), newBranchName)
+			if err != nil {
+				c.JSON(500, gin.H{"error": "Failed to create slug file"})
+				return
+			}
+			config.Slugs[updatedValue.Slug] = id
+			configChanged = true
+		}
+	} else if updatedValue.Slug != "" {
+		// Slug hasn't changed but we still need to update the slug file with new content
+		err = services.CreateOrUpdateFile(access_token, owner, repo, fmt.Sprintf("data/%s/%s.json", ctSlug, updatedValue.Slug), fmt.Sprintf("Update slug file for content value %s", id), string(updatedValueJson), newBranchName)
+		if err != nil {
+			c.JSON(500, gin.H{"error": "Failed to update slug file"})
+			return
+		}
 	}
 
 	page, exists := config.Items[id]
@@ -506,6 +612,21 @@ func UpdateValueById(c *gin.Context) {
 	if err != nil {
 		c.JSON(500, gin.H{"error": "Failed to update index file"})
 		return
+	}
+
+	// Update config if slugs changed
+	if configChanged {
+		updatedConfigJson, err := json.Marshal(config)
+		if err != nil {
+			c.JSON(500, gin.H{"error": "Failed to marshal updated config"})
+			return
+		}
+
+		err = services.CreateOrUpdateFile(access_token, owner, repo, fmt.Sprintf("data/%s/config.json", ctSlug), fmt.Sprintf("Update config for %s", ctSlug), string(updatedConfigJson), newBranchName)
+		if err != nil {
+			c.JSON(500, gin.H{"error": "Failed to update config"})
+			return
+		}
 	}
 
 	err = services.MergeBranch(access_token, owner, repo, newBranchName, fmt.Sprintf("Edit content value - %s/%s", ctSlug, id))

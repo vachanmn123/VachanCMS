@@ -28,11 +28,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Skeleton } from '@/components/ui/skeleton'
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { fieldComponents } from '@/utils/fieldComponents'
 import ApiInfoPanel from '@/components/ApiInfoPanel.vue'
 
 interface ContentValue {
   id: string
+  slug?: string
   values: Record<string, unknown>
 }
 
@@ -46,10 +49,12 @@ const values = ref<ContentValue[]>([])
 const showAddValueDialog = ref(false)
 const editingValue = ref<ContentValue | null>(null)
 const newValue = ref<Record<string, unknown>>({})
+const newSlug = ref('')
 const loading = ref(true)
 const saving = ref(false)
 const dataFetched = ref(false)
 const copiedUrlIndex = ref<number | null>(null)
+const slugError = ref('')
 
 const dialogTitle = computed(() => (editingValue.value ? 'Edit Entry' : 'Add New Entry'))
 const dialogDescription = computed(() =>
@@ -65,14 +70,37 @@ const pagesSettingsUrl = computed(
   () => `https://github.com/${owner.value}/${repo.value}/settings/pages`,
 )
 
-function getEntryUrl(entryId: string): string {
-  if (!pagesStore.baseUrl) return ''
-  const base = pagesStore.baseUrl.endsWith('/') ? pagesStore.baseUrl : `${pagesStore.baseUrl}/`
-  return `${base}data/${ctSlug.value}/${entryId}.json`
+// Validate slug format: lowercase alphanumeric with hyphens
+function validateSlugFormat(slug: string): boolean {
+  if (slug === '') return true // empty is valid (optional)
+  return /^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug)
 }
 
-async function copyEntryUrl(entryId: string, index: number) {
-  const url = getEntryUrl(entryId)
+function handleSlugInput(value: string | number) {
+  const stringValue = String(value)
+  newSlug.value = stringValue
+  if (stringValue && !validateSlugFormat(stringValue)) {
+    slugError.value = 'Slug must be lowercase alphanumeric with hyphens (e.g., my-blog-post)'
+  } else {
+    slugError.value = ''
+  }
+}
+
+function getEntryUrl(item: ContentValue): string {
+  if (!pagesStore.baseUrl) return ''
+  const base = pagesStore.baseUrl.endsWith('/') ? pagesStore.baseUrl : `${pagesStore.baseUrl}/`
+  // Prefer slug over ID for URL
+  const identifier = item.slug || item.id
+  return `${base}data/${ctSlug.value}/${identifier}.json`
+}
+
+function getEntryIdentifier(item: ContentValue): string {
+  // Prefer slug over ID for display
+  return item.slug || item.id
+}
+
+async function copyEntryUrl(item: ContentValue, index: number) {
+  const url = getEntryUrl(item)
   if (!url) return
 
   try {
@@ -102,8 +130,8 @@ async function loadData() {
 // Watch for route changes to refetch data
 watch(
   () => route.params.ctSlug,
-  async (newSlug, oldSlug) => {
-    if (newSlug && newSlug !== oldSlug) {
+  async (newCtSlug, oldSlug) => {
+    if (newCtSlug && newCtSlug !== oldSlug) {
       dataFetched.value = false
       await loadData()
     }
@@ -150,6 +178,8 @@ async function fetchValues(page = 1) {
 function openAddDialog() {
   editingValue.value = null
   newValue.value = {}
+  newSlug.value = ''
+  slugError.value = ''
   // Initialize default values for fields
   selectedTypeFields.value.forEach((field) => {
     if (field.field_type === 'boolean') {
@@ -170,6 +200,8 @@ function openAddDialog() {
 function editValue(item: ContentValue) {
   editingValue.value = item
   newValue.value = { ...item.values }
+  newSlug.value = item.slug || ''
+  slugError.value = ''
   showAddValueDialog.value = true
 }
 
@@ -177,34 +209,50 @@ function closeDialog() {
   showAddValueDialog.value = false
   editingValue.value = null
   newValue.value = {}
+  newSlug.value = ''
+  slugError.value = ''
 }
 
 async function saveValue() {
+  // Validate slug before saving
+  if (newSlug.value && !validateSlugFormat(newSlug.value)) {
+    slugError.value = 'Slug must be lowercase alphanumeric with hyphens (e.g., my-blog-post)'
+    return
+  }
+
   const { owner, repo, ctSlug } = route.params
   saving.value = true
 
   try {
+    const payload: { values: Record<string, unknown>; slug?: string } = {
+      values: newValue.value,
+    }
+    if (newSlug.value) {
+      payload.slug = newSlug.value
+    }
+
     if (editingValue.value) {
       await axios.put(
         `/api/${String(owner)}/${String(repo)}/${String(ctSlug)}/${editingValue.value.id}`,
-        { values: newValue.value },
+        payload,
       )
       toast.success('Entry updated', {
         description: 'The content entry has been updated successfully.',
       })
     } else {
-      await axios.post(`/api/${String(owner)}/${String(repo)}/${String(ctSlug)}`, {
-        values: newValue.value,
-      })
+      await axios.post(`/api/${String(owner)}/${String(repo)}/${String(ctSlug)}`, payload)
       toast.success('Entry created', {
         description: 'A new content entry has been created.',
       })
     }
     closeDialog()
     await fetchValues()
-  } catch {
+  } catch (error: unknown) {
+    const axiosError = error as { response?: { data?: { error?: string } } }
+    const errorMessage =
+      axiosError.response?.data?.error || 'Please try again or check your connection.'
     toast.error('Failed to save entry', {
-      description: 'Please try again or check your connection.',
+      description: errorMessage,
     })
   } finally {
     saving.value = false
@@ -283,6 +331,7 @@ function formatCellValue(value: unknown): string {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead class="whitespace-nowrap">Slug</TableHead>
                 <TableHead
                   v-for="field in selectedTypeFields"
                   :key="field.field_name"
@@ -298,6 +347,9 @@ function formatCellValue(value: unknown): string {
             </TableHeader>
             <TableBody>
               <TableRow v-for="(item, index) in values" :key="item.id">
+                <TableCell class="max-w-32 truncate font-mono text-xs">
+                  {{ item.slug || '-' }}
+                </TableCell>
                 <TableCell
                   v-for="field in selectedTypeFields"
                   :key="field.field_name"
@@ -313,10 +365,14 @@ function formatCellValue(value: unknown): string {
                     </Button>
                     <Button
                       v-if="pagesStore.isInitialized"
-                      @click="copyEntryUrl(item.id, index)"
+                      @click="copyEntryUrl(item, index)"
                       variant="ghost"
                       size="sm"
-                      :title="copiedUrlIndex === index ? 'Copied!' : 'Copy URL'"
+                      :title="
+                        copiedUrlIndex === index
+                          ? 'Copied!'
+                          : `Copy URL (${getEntryIdentifier(item)})`
+                      "
                     >
                       <Check v-if="copiedUrlIndex === index" class="h-3 w-3 text-green-500" />
                       <Copy v-else class="h-3 w-3" />
@@ -340,6 +396,26 @@ function formatCellValue(value: unknown): string {
 
           <form @submit.prevent="saveValue" class="space-y-4">
             <div class="grid gap-4 py-2">
+              <!-- Slug Field -->
+              <div class="space-y-2">
+                <Label for="slug">
+                  Slug
+                  <span class="text-muted-foreground text-xs ml-1">(optional)</span>
+                </Label>
+                <Input
+                  id="slug"
+                  :model-value="newSlug"
+                  @update:model-value="handleSlugInput"
+                  placeholder="my-blog-post"
+                  :class="{ 'border-destructive': slugError }"
+                />
+                <p v-if="slugError" class="text-xs text-destructive">{{ slugError }}</p>
+                <p v-else class="text-xs text-muted-foreground">
+                  A URL-friendly identifier. Use lowercase letters, numbers, and hyphens.
+                </p>
+              </div>
+
+              <!-- Dynamic Fields -->
               <component
                 v-for="field in selectedTypeFields"
                 :key="field.field_name"
@@ -356,7 +432,7 @@ function formatCellValue(value: unknown): string {
               <Button type="button" variant="outline" @click="closeDialog" :disabled="saving">
                 Cancel
               </Button>
-              <Button type="submit" :disabled="saving">
+              <Button type="submit" :disabled="saving || !!slugError">
                 <Loader2 v-if="saving" class="mr-2 h-4 w-4 animate-spin" />
                 {{ editingValue ? 'Update' : 'Create' }}
               </Button>
