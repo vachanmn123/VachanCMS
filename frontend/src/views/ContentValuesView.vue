@@ -634,7 +634,7 @@ function formatCellValue(value: unknown): string {
               />
             </div>
 
-            <DialogFooter class="gap-2 sm:gap-0">
+            <DialogFooter class="gap-2">
               <Button type="button" variant="outline" @click="closeDialog" :disabled="saving">
                 Cancel
               </Button>
@@ -659,7 +659,7 @@ function formatCellValue(value: unknown): string {
               </span>
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter class="gap-2 sm:gap-0">
+          <DialogFooter class="gap-2">
             <Button variant="outline" :disabled="deleting" @click="closeDeleteDialog">
               Cancel
             </Button>
@@ -702,7 +702,7 @@ function formatCellValue(value: unknown): string {
               </p>
             </div>
 
-            <DialogFooter class="gap-2 sm:gap-0">
+            <DialogFooter class="gap-2">
               <Button type="button" variant="outline" @click="closeMoveDialog" :disabled="moving">
                 Cancel
               </Button>

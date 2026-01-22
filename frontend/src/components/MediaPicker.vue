@@ -365,7 +365,7 @@ async function uploadFile() {
         </div>
       </div>
 
-      <DialogFooter class="gap-2 sm:gap-0">
+      <DialogFooter class="gap-2 gap-0">
         <Button variant="outline" @click="close">Cancel</Button>
         <Button @click="confirm" :disabled="localSelection.length === 0">
           Select{{ localSelection.length > 0 ? ` (${localSelection.length})` : '' }}
