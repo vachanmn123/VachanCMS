@@ -52,12 +52,19 @@ func ListMedia(c *gin.Context) {
 		return
 	}
 
-	var index models.MediaIndexFile
+	type MediaIndexWithTotalPages struct {
+		models.MediaIndexFile
+		TotalPages int `json:"total_pages"`
+	}
+
+	var index MediaIndexWithTotalPages
 	err = json.Unmarshal([]byte(indexContents), &index)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "Failed to parse media index"})
 		return
 	}
+
+	index.TotalPages = config.TotalPages
 
 	c.JSON(200, index)
 }

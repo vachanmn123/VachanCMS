@@ -130,7 +130,7 @@ async function fetchMedia(page: number = 1) {
     )
     media.value = response.data.media || []
     currentPage.value = response.data.page
-    // Note: API doesn't return totalPages in index, we'll handle this gracefully
+    totalPages.value = response.data.total_pages
   } catch (error: unknown) {
     const axiosError = error as { response?: { status?: number } }
     if (axiosError.response?.status === 404 || axiosError.response?.status === 500) {
