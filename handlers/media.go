@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -92,6 +93,9 @@ func UploadMedia(c *gin.Context) {
 		c.JSON(500, gin.H{"error": "Failed to create new branch."})
 		return
 	}
+
+	suffixFileType := strings.Split(fileName, ".")[len(strings.Split(fileName, "."))-1]
+	id = fmt.Sprintf("%s.%s", id, suffixFileType)
 
 	// Upload the file
 	err = services.UploadFile(access_token, owner, repo, fmt.Sprintf("media/%s", id), fmt.Sprintf("Upload media file: %s", fileName), content, newBranchName)
