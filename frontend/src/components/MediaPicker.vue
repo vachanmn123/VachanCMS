@@ -286,6 +286,7 @@ async function uploadFile() {
                   :src="getMediaUrl(item.id)"
                   :alt="item.file_name"
                   class="h-full w-full rounded object-cover"
+                  loading="lazy"
                 />
                 <div v-else class="flex h-full items-center justify-center rounded bg-muted">
                   <File class="h-8 w-8 text-muted-foreground" />
