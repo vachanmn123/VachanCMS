@@ -79,8 +79,16 @@ watch(
 async function fetchMedia() {
   loading.value = true
   try {
-    const response = await axios.get(`/api/${owner.value}/${repo.value}/media`)
-    media.value = response.data.media || []
+    let page = 1
+    while (true) {
+      try {
+        const response = await axios.get(`/api/${owner.value}/${repo.value}/media?page=${page}`)
+        media.value = [...media.value, ...response.data.media]
+        page++
+      } catch {
+        break
+      }
+    }
   } catch {
     media.value = []
   } finally {
